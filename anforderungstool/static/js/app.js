@@ -2,8 +2,10 @@
 
 import { api, darf, datumText, fehlerMelden, formularDialog, h, leeren, melden, spracheLaden, t, uebersetzen, wennAbgemeldet, zustand } from "./basis.js";
 import { zeigeAnforderung, zeigeListe, zeigeTagesliste } from "./anforderungen.js";
+import { zeigeAusnahme, zeigeAusnahmeListe } from "./ausnahmen.js";
 import { zeigeBenutzer } from "./benutzer.js";
 import { zeigeEinstellungen } from "./einstellungen.js";
+import { zeigeFachstellen } from "./fachstellen.js";
 import { zeigeKataloge } from "./kataloge.js";
 import { zeigeKostenstellen } from "./kostenstellen.js";
 import { zeigeStart } from "./start.js";
@@ -20,10 +22,14 @@ const SEITEN = [
   { pfad: "genehmigen", menue: "genehmigen", sichtbar: (i) => i.genehmiger || i.offen.genehmigen > 0, zeigen: (w) => zeigeListe(w, "genehmigen"), zaehler: (i) => i.offen.genehmigen },
   { pfad: "ausfuehren", menue: "ausfuehren", sichtbar: (i) => i.ausfuehrender, zaehler: (i) => i.offen.ausfuehren,
     zeigen: (w, rest) => (rest[0] === "druck" ? zeigeTagesliste(w, rest[1]) : zeigeListe(w, "ausfuehren")) },
+  { pfad: "ausnahmen", menue: "ausnahmen", zeigen: (w, rest) => zeigeAusnahmeListe(w, rest[0]),
+    zaehler: (i) => i.offen_ausnahmen.pruefen + i.offen_ausnahmen.rueckfragen + i.offen_ausnahmen.bestellen },
+  { pfad: "ausnahme", zeigen: zeigeAusnahme },
   { pfad: "alle", menue: "alle", sichtbar: () => darf("verwalten"), zeigen: (w) => zeigeListe(w, "alle") },
   { pfad: "kataloge", menue: "kataloge", sichtbar: (i) => darf("verwalten") || i.pfleger, zeigen: zeigeKataloge },
   { pfad: "statistik", menue: "statistik", sichtbar: () => darf("verwalten") || darf("statistik"), zeigen: zeigeStatistik },
   { pfad: "benutzer", menue: "benutzer", sichtbar: () => darf("verwalten"), zeigen: zeigeBenutzer },
+  { pfad: "fachstellen", menue: "fachstellen", sichtbar: () => darf("verwalten"), zeigen: zeigeFachstellen },
   { pfad: "kostenstellen", menue: "kostenstellen", sichtbar: () => darf("verwalten"), zeigen: zeigeKostenstellen },
   { pfad: "einstellungen", menue: "einstellungen", sichtbar: () => darf("verwalten"), zeigen: zeigeEinstellungen },
   { pfad: "vertretung", zeigen: zeigeVertretung },
@@ -49,7 +55,7 @@ async function start() {
   updateHinweis();
   setInterval(async () => {
     versionPruefen();
-    const vorher = JSON.stringify(zustand.ich?.offen);
+    const vorher = JSON.stringify([zustand.ich?.offen, zustand.ich?.offen_ausnahmen]);
     try {
       await ichLaden();
     } catch {
@@ -57,7 +63,7 @@ async function start() {
     }
     menueAufbauen();
     // Die Übersicht zeigt neue Aufgaben, ohne dass man neu laden muss
-    if (aktuelleSeite() === "start" && JSON.stringify(zustand.ich.offen) !== vorher && !document.querySelector("dialog[open]")) seiteWechseln();
+    if (aktuelleSeite() === "start" && JSON.stringify([zustand.ich.offen, zustand.ich.offen_ausnahmen]) !== vorher && !document.querySelector("dialog[open]")) seiteWechseln();
   }, 60000);
   document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && versionPruefen());
   window.addEventListener("hashchange", () => {
@@ -190,13 +196,15 @@ function menueAufbauen() {
     nav,
     SEITEN.filter((s) => s.menue && (!s.sichtbar || s.sichtbar(ich))).map((s) => {
       const zahl = s.zaehler ? s.zaehler(ich) : 0;
-      const aktiv = aktuell === s.pfad || (s.pfad === "anforderungen" && location.hash.startsWith("#/anforderung/neu"));
+      const aktiv = aktuell === s.pfad || (s.pfad === "anforderungen" && location.hash.startsWith("#/anforderung/neu")) ||
+        (s.pfad === "ausnahmen" && aktuell === "ausnahme");
       return h("a", { href: `#/${s.pfad}`, class: aktiv ? "aktiv" : "" }, t(`menue.${s.menue}`), zahl ? h("span.zaehler", zahl) : null);
     }),
     update
   );
   // Offene Aufgaben auch im Browser-Tab, wenn das Tool im Hintergrund offen ist
-  const offen = ich.offen.genehmigen + ich.offen.ausfuehren + ich.offen.rueckfragen;
+  const aa = ich.offen_ausnahmen;
+  const offen = ich.offen.genehmigen + ich.offen.ausfuehren + ich.offen.rueckfragen + aa.pruefen + aa.rueckfragen + aa.bestellen;
   document.title = offen ? `(${offen}) ${t("app.name")}` : t("app.name");
   hinweisleisteAufbauen();
 }

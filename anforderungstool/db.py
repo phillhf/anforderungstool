@@ -140,6 +140,87 @@ MIGRATIONEN: list[str] = [
     """
     ALTER TABLE anforderungen ADD COLUMN erinnert TEXT
     """,
+    # 3 – Ausnahmeanträge: Fachstellen, Anträge, Stationen des Wegs, Verlauf, Anhänge
+    """
+    CREATE TABLE fachstellen (
+        id          INTEGER PRIMARY KEY,
+        name        TEXT NOT NULL,
+        hinweis     TEXT NOT NULL DEFAULT '',
+        art         TEXT NOT NULL DEFAULT 'bedarf',
+        reihenfolge INTEGER NOT NULL DEFAULT 0,
+        ausfuehrend INTEGER NOT NULL DEFAULT 0,
+        email       TEXT NOT NULL DEFAULT '',
+        aktiv       INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE TABLE fachstelle_mitglieder (
+        fachstelle_id INTEGER NOT NULL REFERENCES fachstellen(id) ON DELETE CASCADE,
+        benutzer_id   INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+        PRIMARY KEY (fachstelle_id, benutzer_id)
+    );
+    CREATE TABLE ausnahmen (
+        id                 INTEGER PRIMARY KEY,
+        antragsteller_id   INTEGER NOT NULL REFERENCES benutzer(id),
+        titel              TEXT NOT NULL DEFAULT '',
+        beschreibung       TEXT NOT NULL DEFAULT '',
+        bereich            TEXT NOT NULL DEFAULT '',
+        kostenstelle_id    INTEGER REFERENCES kostenstellen(id),
+        begruendung        TEXT NOT NULL DEFAULT '',
+        menge              REAL NOT NULL DEFAULT 1,
+        einzelpreis        REAL NOT NULL DEFAULT 0,
+        summe              REAL NOT NULL DEFAULT 0,
+        laufende_kosten    REAL,
+        lieferant          TEXT NOT NULL DEFAULT '',
+        wirtschaftlichkeit TEXT NOT NULL DEFAULT '',
+        status             TEXT NOT NULL DEFAULT 'entwurf',
+        erstellt           TEXT NOT NULL DEFAULT (datetime('now')),
+        uebermittelt       TEXT,
+        abgeschlossen      TEXT,
+        erinnert           TEXT
+    );
+    CREATE TABLE ausnahme_auswahl (
+        ausnahme_id   INTEGER NOT NULL REFERENCES ausnahmen(id) ON DELETE CASCADE,
+        fachstelle_id INTEGER NOT NULL REFERENCES fachstellen(id) ON DELETE CASCADE,
+        PRIMARY KEY (ausnahme_id, fachstelle_id)
+    );
+    CREATE TABLE ausnahme_stationen (
+        id               INTEGER PRIMARY KEY,
+        ausnahme_id      INTEGER NOT NULL REFERENCES ausnahmen(id) ON DELETE CASCADE,
+        pos              INTEGER NOT NULL,
+        art              TEXT NOT NULL,
+        benutzer_id      INTEGER REFERENCES benutzer(id),
+        fachstelle_id    INTEGER REFERENCES fachstellen(id),
+        status           TEXT NOT NULL DEFAULT 'offen',
+        hinzugefuegt_von INTEGER REFERENCES benutzer(id),
+        entschieden_von  INTEGER REFERENCES benutzer(id),
+        im_namen_von     INTEGER REFERENCES benutzer(id),
+        entschieden_am   TEXT
+    );
+    CREATE TABLE ausnahme_verlauf (
+        id           INTEGER PRIMARY KEY,
+        ausnahme_id  INTEGER NOT NULL REFERENCES ausnahmen(id) ON DELETE CASCADE,
+        zeit         TEXT NOT NULL DEFAULT (datetime('now')),
+        benutzer_id  INTEGER REFERENCES benutzer(id),
+        im_namen_von INTEGER REFERENCES benutzer(id),
+        aktion       TEXT NOT NULL,
+        notiz        TEXT NOT NULL DEFAULT '',
+        station      TEXT NOT NULL DEFAULT '',
+        weiter_an    TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE anhaenge (
+        id          INTEGER PRIMARY KEY,
+        ausnahme_id INTEGER NOT NULL REFERENCES ausnahmen(id) ON DELETE CASCADE,
+        name        TEXT NOT NULL,
+        datei       TEXT NOT NULL,
+        groesse     INTEGER NOT NULL,
+        benutzer_id INTEGER REFERENCES benutzer(id),
+        erstellt    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX ausnahmen_antragsteller ON ausnahmen(antragsteller_id);
+    CREATE INDEX ausnahmen_status ON ausnahmen(status);
+    CREATE INDEX ausnahme_stationen_antrag ON ausnahme_stationen(ausnahme_id);
+    CREATE INDEX ausnahme_verlauf_antrag ON ausnahme_verlauf(ausnahme_id);
+    CREATE INDEX anhaenge_antrag ON anhaenge(ausnahme_id)
+    """,
 ]
 
 STANDARD_EINSTELLUNGEN = {

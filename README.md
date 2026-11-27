@@ -13,6 +13,10 @@ Web-Anwendung für hausinterne Anforderungen mit Genehmigung. Ein Beispiel: Brö
 
 Wer anfordert, sieht jederzeit, wo die Anforderung steht und wer was entschieden hat.
 
+## Ausnahmeanträge
+
+Für alles, was in keinem Katalog steht, zum Beispiel 10 Bürostühle oder ein medizinisches Gerät. Der Antrag enthält Begründung, Kosten, Wirtschaftlichkeit und Anhänge. Er geht erst an den eigenen Vorgesetzten, danach nacheinander an die Fachstellen (Einkauf, IT, Datenschutz, Medizintechnik …). Welche Fachstellen bei Bedarf dazukommen, kreuzt der Antragsteller an. Jede Stelle kann eine weitere dazuholen. Nach der Freigabe meldet der Einkauf *bestellt*, *geliefert* und *erledigt*. In der Ansicht sieht jeder den ganzen Weg und wo der Antrag gerade liegt.
+
 ## Funktionen
 
 - **Übersicht:** Nach der Anmeldung sieht jeder sofort, was er tun muss: Rückfragen, zu genehmigen, auszuführen. Dazu kommen die eigenen Anforderungen mit dem Hinweis, bei wem sie gerade liegen und seit wann.

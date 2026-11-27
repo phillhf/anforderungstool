@@ -281,3 +281,33 @@ pre.notizen { white-space: pre-wrap; font: inherit; background: var(--hintergrun
   #hinweisleiste { padding: 8px 12px; justify-content: flex-start; }
   .druck-positionen { columns: 1; }
 }
+
+/* ------------------------------------------------------------ Ausnahmeanträge */
+.status.pruefung { background: #fff1d1; color: #8a5a00; }
+.status.freigegeben { background: #dcf2e1; color: var(--gruen); }
+.status.bestellt, .status.geliefert { background: var(--blau-hell); color: var(--blau); }
+.reiter.klein { border-bottom: 0; margin: -8px 0 12px; }
+.reiter.klein a { padding: 4px 10px; border-radius: 14px; border: 1px solid var(--linie); margin: 0; font-size: 0.9rem; }
+.reiter.klein a.aktiv { background: var(--blau-hell); border-color: var(--blau); }
+.vortext { white-space: pre-wrap; margin: 0 0 6px; }
+.textblock h3, .box h3 { margin: 14px 0 6px; font-size: 0.95rem; color: var(--gedimmt); }
+.stellen-auswahl { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.stelle { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--linie); border-radius: var(--radius); padding: 10px 12px; cursor: pointer; }
+.stelle:hover { border-color: var(--blau); }
+.stelle:has(input:checked) { border-color: var(--blau); background: var(--blau-hell); }
+.stelle input { margin-top: 3px; }
+.stelle small { display: block; color: var(--gedimmt); font-size: 0.85rem; }
+.anhaenge { list-style: none; margin: 0 0 12px; padding: 0; }
+.anhaenge li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 0; }
+.anhaenge li .knopf-flach { padding: 2px 8px; }
+.zeitleiste li.weg-durch span { text-decoration: line-through; }
+.zeitleiste li > small { display: block; }
+/* Ansicht: links die Angaben, rechts Weg und Verlauf; auf dem Handy steht der Weg ganz oben */
+.ausnahme-spalten { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); grid-template-rows: auto 1fr;
+  grid-template-areas: "links strecke" "links verlauf"; gap: 0 20px; align-items: start; }
+.ausnahme-spalten > .links { grid-area: links; min-width: 0; }
+.ausnahme-spalten > .strecke-box { grid-area: strecke; }
+.ausnahme-spalten > .verlauf-box { grid-area: verlauf; }
+@media (max-width: 900px) {
+  .ausnahme-spalten { grid-template-columns: 1fr; grid-template-rows: none; grid-template-areas: "strecke" "links" "verlauf"; }
+}

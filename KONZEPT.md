@@ -101,3 +101,79 @@ Im Admin-Bereich lässt sich einzeln ein- und ausschalten, welche E-Mails rausge
   - Die Statistik lässt sich auch nach Kostenstelle filtern.
 - **Repo:** öffentlich auf GitHub.
 - **Lizenz:** eigener Lizenztext. Nur Privatpersonen dürfen das Tool kostenlos und privat nutzen. Jede Organisation braucht eine kostenpflichtige Lizenz, auch Krankenhäuser, Behörden und gemeinnützige Einrichtungen. Der Text ist nicht anwaltlich geprüft.
+
+---
+
+# Teil 2: Ausnahmeanträge (ab 0.3.0)
+
+Für Dinge, die in keinem Katalog stehen: zum Beispiel 10 Bürostühle, Glasabfallbehälter oder ein medizinisches Gerät. Bisher läuft das in Pegasos und ist dort undurchsichtig. Niemand sieht, wo ein Antrag gerade liegt. Das ist das Hauptziel: **Jeder sieht jederzeit die ganze Strecke und wo der Antrag gerade steht.**
+
+## Einordnung
+
+- Eine zweite Antragsart im bestehenden Tool, neben der Katalog-Anforderung. Benutzer, Anmeldung, Hierarchie, Vertretung, E-Mails, Übersicht und Erinnerungen werden mitbenutzt.
+- Jeder angemeldete Benutzer darf einen Ausnahmeantrag stellen.
+- Die Nummern laufen getrennt: **AA-0001**.
+
+## Formular
+
+- **Was:** Titel (z. B. „10 Bürostühle“) und Beschreibung
+- **Wofür und wo:** Bereich bzw. Station, Kostenstelle (Pflicht), Begründung (Pflicht)
+- **Kosten** in festen Feldern:
+  - Menge und Preis je Stück; die Summe rechnet das Tool
+  - laufende Kosten pro Jahr (optional)
+  - Lieferant oder Angebot (optional)
+- **Wirtschaftlichkeit:** Freitext. Die eigentliche Rechnung macht der Antragsteller selbst, zum Beispiel als Anhang.
+- **Anhänge:** Angebote, Berechnungen (Excel, PDF), Fotos
+- **Beteiligte Fachstellen:** Häkchen für die Stellen, die nur bei Bedarf beteiligt sind (siehe unten), mit dem Hinweis des Admins, wann eine Stelle dazugehört
+- Schon beim Ausfüllen zeigt das Tool den Weg, der sich daraus ergibt.
+
+## Fachstellen
+
+- Der Admin legt beliebig viele Fachstellen an, zum Beispiel Einkauf, IT, Team ISM (Datenschutz), Medizintechnik, Controlling, Geschäftsführung.
+- Jede Fachstelle hat ein oder mehrere **Mitglieder**. Jedes Mitglied darf für die Stelle entscheiden. Die persönliche Vertretung gilt zusätzlich.
+- Jede Fachstelle ist entweder
+  - **immer beteiligt**: Sie prüft jeden Antrag, oder
+  - **bei Bedarf beteiligt**: Der Antragsteller kreuzt sie an. Dazu gibt es einen Hinweistext, z. B. bei ISM „Ankreuzen, wenn Patienten- oder Mitarbeiterdaten verarbeitet werden“.
+- Der Admin legt **eine feste Reihenfolge** über alle Fachstellen fest. Der Betrag spielt keine Rolle.
+
+## Weg eines Antrags
+
+1. **Eigener Vorgesetzter** (nur die direkte Stelle, nicht die ganze Kette): Will der Bereich das überhaupt?
+2. **Fachstellen nacheinander** in der festen Reihenfolge. Nicht angekreuzte Stellen fallen weg.
+
+Beispiel mit der Reihenfolge Medizintechnik* → IT* → ISM* → Einkauf → Geschäftsführung (* = bei Bedarf):
+- Bürostuhl: Vorgesetzter → Einkauf → Geschäftsführung
+- Medizinisches Gerät mit Patientendaten: Vorgesetzter → Medizintechnik → IT → ISM → Einkauf → Geschäftsführung
+
+Jede Station kann:
+- **Freigeben:** weiter zur nächsten Station
+- **Rückfrage:** mit Text zurück an den Antragsteller. Nach dem erneuten Übermitteln geht es **bei der fragenden Station weiter**. Frühere Freigaben bleiben gültig und im Verlauf sichtbar.
+- **Ablehnen:** mit Pflicht-Begründung, damit ist der Antrag beendet
+- **Weitere Fachstelle hinzuziehen:** Jede prüfende Station kann eine „bei Bedarf“-Stelle dazunehmen. Ein Beispiel: Der Einkauf merkt, dass das Gerät ins Netzwerk muss, und holt die IT dazu. Die Stelle wird an ihrer Position in der Reihenfolge eingefügt. Liegt diese Position schon hinter dem Antrag, kommt die Stelle als Nächstes dran. Im Verlauf steht, wer sie dazugenommen hat.
+- Notizen und eigene Anhänge dazulegen
+
+## Nach der Freigabe
+
+- Eine vom Admin festgelegte Fachstelle (meist der Einkauf) führt den Antrag weiter: **bestellt → geliefert → erledigt**, jeweils mit optionaler Notiz, zum Beispiel Bestellnummer oder Liefertermin.
+- Der Antragsteller bekommt bei jeder Entscheidung und jedem dieser Schritte eine E-Mail.
+
+## Transparenz
+
+- Der Verlauf zeigt **die ganze Strecke**: erledigte Stationen mit Person und Zeitpunkt, die aktuelle markiert, die kommenden grau.
+- In allen Listen steht „wartet bei IT · seit 4 Tagen“.
+- Ausnahmeanträge erscheinen in den Kacheln der Übersicht. Für Mitglieder einer Fachstelle gibt es die Kachel „Für meine Fachstelle zu prüfen“. Erinnerungs-Mails und die Zahl im Browser-Tab gelten auch hier.
+
+## Wer sieht einen Antrag?
+
+Nur die Beteiligten: der Antragsteller, sein Vorgesetzter, die Mitglieder der beteiligten Fachstellen, deren Vertretungen und die Admins.
+
+## Entschieden (Teil 2)
+
+- Fachstellen sind frei anlegbar, entweder immer beteiligt oder bei Bedarf, in fester Reihenfolge, unabhängig vom Betrag.
+- Die Stationen prüfen nacheinander, nie parallel.
+- Zuerst prüft der direkte Vorgesetzte, danach die Fachstellen.
+- Jede Station darf eine „bei Bedarf“-Stelle nachträglich hinzuziehen.
+- Nach einer Rückfrage geht es bei der fragenden Station weiter.
+- Kosten in festen Feldern, die Wirtschaftlichkeitsrechnung als Freitext oder Anhang.
+- Nach der Freigabe: bestellt → geliefert → erledigt, meist durch den Einkauf.
+- Sichtbar nur für die Beteiligten.

@@ -12,12 +12,13 @@ import re
 import sys
 from contextlib import asynccontextmanager
 from datetime import date
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from . import APP_NAME, __version__, ablauf, auth, mail, verzeichnis, wartung
+from . import APP_NAME, __version__, ablauf, auth, ausnahme, mail, verzeichnis, wartung
 from .config import Pfade, static_ordner
 from .db import KATALOG_ROLLEN, RECHTE, Datenbank
 
@@ -162,6 +163,46 @@ class LdapTest(BaseModel):
     passwort: str
 
 
+class AusnahmeDaten(BaseModel):
+    titel: str = Field(default="", max_length=200)
+    beschreibung: str = Field(default="", max_length=5000)
+    bereich: str = Field(default="", max_length=200)
+    kostenstelle_id: int | None = None
+    begruendung: str = Field(default="", max_length=5000)
+    menge: float = Field(default=1, ge=0, le=1_000_000)
+    einzelpreis: float = Field(default=0, ge=0, le=100_000_000)
+    laufende_kosten: float | None = Field(default=None, ge=0, le=100_000_000)
+    lieferant: str = Field(default="", max_length=500)
+    wirtschaftlichkeit: str = Field(default="", max_length=10000)
+    fachstellen: list[int] = []  # angekreuzte „bei Bedarf“-Stellen
+
+
+class AusnahmeEntscheidung(BaseModel):
+    aktion: str
+    notiz: str = Field(default="", max_length=5000)
+
+
+class Hinzuziehen(BaseModel):
+    fachstelle_id: int
+    notiz: str = Field(default="", max_length=5000)
+
+
+class StatusDaten(BaseModel):
+    status: str
+    notiz: str = Field(default="", max_length=2000)
+
+
+class FachstelleDaten(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    hinweis: str = Field(default="", max_length=500)
+    art: str = "bedarf"
+    reihenfolge: int = 0
+    ausfuehrend: bool = False
+    email: str = Field(default="", max_length=500)
+    aktiv: bool = True
+    mitglieder: list[int] = []
+
+
 _BENUTZERNAME = re.compile(r"^[A-Za-z0-9._@-]{1,64}$")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -194,10 +235,10 @@ def erstelle_app(pfade: Pfade, hintergrund: bool = True) -> FastAPI:
     versand = mail.Versand(db)
 
     def erinnerungen() -> None:
-        if ablauf.erinnern(db):
+        if ablauf.erinnern(db) + ausnahme.erinnern(db):
             versand.wecken()
 
-    stuendlich = wartung.Stuendlich([lambda: wartung.tages_sicherung(db, pfade), erinnerungen])
+    stuendlich = wartung.Stuendlich([lambda: wartung.tages_sicherung(db, pfade), lambda: wartung.anhaenge_sichern(pfade), erinnerungen])
     bremse = auth.Anmeldebremse()
 
     @asynccontextmanager
@@ -362,6 +403,9 @@ def erstelle_app(pfade: Pfade, hintergrund: bool = True) -> FastAPI:
                                or ablauf.vertretene(db, ich["id"])),
             "offen": ablauf.offene_zahlen(db, ich),
             "kette": ablauf.kette_nach_oben(db, ich["id"]),
+            "fachstellen": sorted(ausnahme.stellen_fuer(db, ich["id"])),
+            "ausnahme_ausfuehrend": ausnahme.darf_ausfuehren(db, ich),
+            "offen_ausnahmen": ausnahme.offene_zahlen(db, ich),
             **ablauf.vertretungen_heute(db, ich["id"]),
         }
 
@@ -372,6 +416,7 @@ def erstelle_app(pfade: Pfade, hintergrund: bool = True) -> FastAPI:
     @app.get("/api/aufgaben")
     def aufgaben(ich: dict = Depends(angemeldet)):
         daten = ablauf.aufgaben(db, ich)
+        daten["ausnahmen"] = ausnahme.aufgaben(db, ich)
         if "verwalten" in ich["rechte"]:
             daten["verwaltung"] = {
                 "mail_fehlt": not mail.eingerichtet(db),
@@ -648,9 +693,170 @@ def erstelle_app(pfade: Pfade, hintergrund: bool = True) -> FastAPI:
         if benutzer_id == ich["id"]:
             raise fehler(400, "eigene_rechte")
         if db.eins("SELECT 1 FROM anforderungen WHERE antragsteller_id = ? OR bearbeiter_id = ?", (benutzer_id, benutzer_id)) or \
-                db.eins("SELECT 1 FROM verlauf WHERE benutzer_id = ? OR im_namen_von = ? OR weiter_an = ?", (benutzer_id,) * 3):
+                db.eins("SELECT 1 FROM verlauf WHERE benutzer_id = ? OR im_namen_von = ? OR weiter_an = ?", (benutzer_id,) * 3) or \
+                db.eins("SELECT 1 FROM ausnahmen WHERE antragsteller_id = ?", (benutzer_id,)) or \
+                db.eins("SELECT 1 FROM ausnahme_stationen WHERE benutzer_id = ? OR entschieden_von = ? OR im_namen_von = ?", (benutzer_id,) * 3) or \
+                db.eins("SELECT 1 FROM ausnahme_verlauf WHERE benutzer_id = ? OR im_namen_von = ?", (benutzer_id,) * 2):
             raise fehler(409, "benutzer_benutzt")
         db.ausfuehren("DELETE FROM benutzer WHERE id = ?", (benutzer_id,))
+        return {"ok": True}
+
+    # ---------------------------------------------------------------- Fachstellen (Ausnahmeanträge)
+    @app.get("/api/fachstellen")
+    def fachstellen_liste(ich: dict = Depends(angemeldet)):
+        zeilen = ausnahme.fachstellen(db, nur_aktive="verwalten" not in ich["rechte"])
+        if "verwalten" not in ich["rechte"]:
+            for z in zeilen:
+                z.pop("mitglieder")
+                z.pop("email")
+        return zeilen
+
+    def _fachstelle_pruefen(daten: FachstelleDaten) -> dict:
+        if daten.art not in ausnahme.ART:
+            raise fehler(400, "fachstelle_art")
+        werte = daten.model_dump(exclude={"mitglieder"})
+        werte["name"] = daten.name.strip()
+        werte["email"] = _email_pruefen(daten.email, mehrere=True)
+        for b in daten.mitglieder:
+            if not db.eins("SELECT 1 FROM benutzer WHERE id = ?", (b,)):
+                raise fehler(400, "benutzer_unbekannt")
+        return werte
+
+    def _mitglieder_setzen(fid: int, mitglieder: list[int]) -> None:
+        db.ausfuehren("DELETE FROM fachstelle_mitglieder WHERE fachstelle_id = ?", (fid,))
+        for b in sorted(set(mitglieder)):
+            db.ausfuehren("INSERT INTO fachstelle_mitglieder (fachstelle_id, benutzer_id) VALUES (?, ?)", (fid, b))
+
+    @app.post("/api/fachstellen")
+    def fachstelle_neu(daten: FachstelleDaten, ich: dict = Depends(verwalten)):
+        w = _fachstelle_pruefen(daten)
+        with db.transaktion():
+            fid = db.ausfuehren(f"INSERT INTO fachstellen ({', '.join(w)}) VALUES ({', '.join('?' * len(w))})", tuple(w.values()))
+            _mitglieder_setzen(fid, daten.mitglieder)
+        return {"id": fid}
+
+    @app.put("/api/fachstellen/{fid}")
+    def fachstelle_aendern(fid: int, daten: FachstelleDaten, ich: dict = Depends(verwalten)):
+        if not db.eins("SELECT 1 FROM fachstellen WHERE id = ?", (fid,)):
+            raise fehler(404, "nicht_gefunden")
+        w = _fachstelle_pruefen(daten)
+        with db.transaktion():
+            db.ausfuehren(f"UPDATE fachstellen SET {', '.join(f'{k} = ?' for k in w)} WHERE id = ?", (*w.values(), fid))
+            _mitglieder_setzen(fid, daten.mitglieder)
+        return {"ok": True}
+
+    @app.delete("/api/fachstellen/{fid}")
+    def fachstelle_loeschen(fid: int, ich: dict = Depends(verwalten)):
+        if db.eins("SELECT 1 FROM ausnahme_stationen WHERE fachstelle_id = ?", (fid,)):
+            raise fehler(409, "fachstelle_benutzt")
+        db.ausfuehren("DELETE FROM fachstellen WHERE id = ?", (fid,))
+        return {"ok": True}
+
+    @app.put("/api/fachstellen-reihenfolge")
+    def fachstellen_reihenfolge(ids: list[int], ich: dict = Depends(verwalten)):
+        with db.transaktion():
+            for i, fid in enumerate(ids, start=1):
+                db.ausfuehren("UPDATE fachstellen SET reihenfolge = ? WHERE id = ?", (i * 10, fid))
+        return {"ok": True}
+
+    # ---------------------------------------------------------------- Ausnahmeanträge
+    def _ausnahme(aid: int, ich: dict) -> dict:
+        a = ausnahme.laden(db, aid)
+        if not ausnahme.darf_sehen(db, a, ich):
+            raise fehler(404, "nicht_gefunden")
+        a["aktionen"] = ausnahme.moegliche_aktionen(db, a, ich)
+        z = ausnahme.zustaendig(db, a, ich)
+        if z and z["im_namen_von"]:
+            a["vertretung_fuer"] = ablauf.benutzer(db, z["im_namen_von"])["anzeigename"]
+        if a["status"] == "entwurf":
+            # Vorschau des Wegs, so wie er beim Übermitteln entstehen würde
+            try:
+                weg = ausnahme.weg_planen(db, a["antragsteller_id"], a["auswahl"])
+            except ablauf.AblaufFehler:
+                weg = []
+            namen = {f["id"]: f["name"] for f in ausnahme.fachstellen(db)}
+            a["geplant"] = [namen[s["fachstelle_id"]] if s["art"] == "fachstelle" else ablauf.benutzer(db, s["benutzer_id"])["anzeigename"]
+                            for s in weg]
+        return a
+
+    @app.get("/api/ausnahmen")
+    def ausnahmen(ansicht: str = "meine", status: str | None = None, ich: dict = Depends(angemeldet)):
+        return ausnahme.liste(db, ich, ansicht, status or None)
+
+    @app.post("/api/ausnahmen")
+    def ausnahme_neu(daten: AusnahmeDaten, ich: dict = Depends(angemeldet)):
+        return {"id": ausnahme.speichern(db, ich, daten.model_dump())}
+
+    @app.get("/api/ausnahmen/{aid}")
+    def ausnahme_lesen(aid: int, ich: dict = Depends(angemeldet)):
+        return _ausnahme(aid, ich)
+
+    @app.put("/api/ausnahmen/{aid}")
+    def ausnahme_aendern(aid: int, daten: AusnahmeDaten, ich: dict = Depends(angemeldet)):
+        ausnahme.speichern(db, ich, daten.model_dump(), aid)
+        return _ausnahme(aid, ich)
+
+    @app.delete("/api/ausnahmen/{aid}")
+    def ausnahme_loeschen(aid: int, ich: dict = Depends(angemeldet)):
+        ausnahme.loeschen(db, pfade, ich, aid)
+        return {"ok": True}
+
+    @app.post("/api/ausnahmen/{aid}/uebermitteln")
+    def ausnahme_uebermitteln(aid: int, daten: Notiz, ich: dict = Depends(angemeldet)):
+        ausnahme.uebermitteln(db, ich, aid, daten.notiz)
+        return _ausnahme(aid, ich)
+
+    @app.post("/api/ausnahmen/{aid}/entscheidung")
+    def ausnahme_entscheiden(aid: int, daten: AusnahmeEntscheidung, ich: dict = Depends(angemeldet)):
+        ausnahme.entscheiden(db, ich, aid, daten.aktion, daten.notiz)
+        return _ausnahme(aid, ich)
+
+    @app.post("/api/ausnahmen/{aid}/hinzuziehen")
+    def ausnahme_hinzuziehen(aid: int, daten: Hinzuziehen, ich: dict = Depends(angemeldet)):
+        ausnahme.hinzuziehen(db, ich, aid, daten.fachstelle_id, daten.notiz)
+        return _ausnahme(aid, ich)
+
+    @app.post("/api/ausnahmen/{aid}/status")
+    def ausnahme_status(aid: int, daten: StatusDaten, ich: dict = Depends(angemeldet)):
+        ausnahme.status_setzen(db, ich, aid, daten.status, daten.notiz)
+        return _ausnahme(aid, ich)
+
+    @app.post("/api/ausnahmen/{aid}/notiz")
+    def ausnahme_notiz(aid: int, daten: Notiz, ich: dict = Depends(angemeldet)):
+        _ausnahme(aid, ich)  # sehen dürfen genügt
+        a = db.eins("SELECT status FROM ausnahmen WHERE id = ?", (aid,))
+        if a["status"] == "entwurf":
+            raise fehler(409, "nicht_bearbeitbar")
+        ausnahme.notiz_hinzufuegen(db, ich, aid, daten.notiz)
+        return _ausnahme(aid, ich)
+
+    @app.post("/api/ausnahmen/{aid}/anhaenge")
+    async def anhang_hochladen(aid: int, name: str, request: Request, ich: dict = Depends(angemeldet)):
+        # Die Datei kommt roh im Body (kein Formular), der Name als Parameter
+        laenge = int(request.headers.get("content-length") or 0)
+        if laenge > ausnahme.MAX_ANHANG:
+            raise fehler(413, "anhang_zu_gross", mb=ausnahme.MAX_ANHANG // (1024 * 1024))
+        inhalt = await request.body()
+        a = ausnahme.laden(db, aid)
+        if not ausnahme.darf_sehen(db, a, ich):
+            raise fehler(404, "nicht_gefunden")
+        return ausnahme.anhang_speichern(db, pfade, ich, a, name, inhalt)
+
+    @app.get("/api/anhaenge/{hid}")
+    def anhang_laden(hid: int, ich: dict = Depends(angemeldet)):
+        h = ausnahme.anhang(db, hid)
+        _ausnahme(h["ausnahme_id"], ich)
+        datei = pfade.anhaenge / h["datei"]
+        if not datei.is_file():
+            raise fehler(404, "nicht_gefunden")
+        return FileResponse(datei, headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(h['name'])}", "Cache-Control": "private, no-store"})
+
+    @app.delete("/api/anhaenge/{hid}")
+    def anhang_entfernen(hid: int, ich: dict = Depends(angemeldet)):
+        h = ausnahme.anhang(db, hid)
+        _ausnahme(h["ausnahme_id"], ich)
+        ausnahme.anhang_loeschen(db, pfade, ich, h)
         return {"ok": True}
 
     # ---------------------------------------------------------------- Kostenstellen
@@ -676,7 +882,8 @@ def erstelle_app(pfade: Pfade, hintergrund: bool = True) -> FastAPI:
 
     @app.delete("/api/kostenstellen/{ks_id}")
     def kostenstelle_loeschen(ks_id: int, ich: dict = Depends(verwalten)):
-        if db.eins("SELECT 1 FROM anforderungen WHERE kostenstelle_id = ?", (ks_id,)):
+        if db.eins("SELECT 1 FROM anforderungen WHERE kostenstelle_id = ?", (ks_id,)) or \
+                db.eins("SELECT 1 FROM ausnahmen WHERE kostenstelle_id = ?", (ks_id,)):
             raise fehler(409, "kostenstelle_benutzt")
         db.ausfuehren("DELETE FROM kostenstellen WHERE id = ?", (ks_id,))
         return {"ok": True}

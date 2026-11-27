@@ -9,6 +9,10 @@ Konten (alle mit dem Passwort aus PASSWORT):
   anna       Pflegekraft, Grenze 0 €, Vorgesetzte chef, darf aus „Cafeteria“ und „Büromaterial“ anfordern
   vertreter  stellv. Stationsleitung, Grenze 0 €, Vorgesetzter boss
   kueche     Cafeteria, führt den Katalog „Cafeteria“ aus und pflegt ihn
+  einkauf    Fachstelle Einkauf (bestellt freigegebene Ausnahmeanträge)
+  it         Fachstellen IT und Team ISM
+
+Fachstellen für Ausnahmeanträge: Medizintechnik (vertreter), IT, Team ISM (bei Bedarf), Einkauf, Geschäftsführung (boss, immer).
 """
 
 from __future__ import annotations
@@ -58,11 +62,26 @@ def main(adresse: str) -> None:
     boss = person("boss", "Dr. Berta Boss", None)
     chef = person("chef", "Carl Chef", 100, boss)
     anna = person("anna", "Anna Antrag", 0, chef, [caf, buero])
-    person("vertreter", "Vera Vertreter", 0, boss)
+    vertreter = person("vertreter", "Vera Vertreter", 0, boss)
     kueche = person("kueche", "Kurt Küche", 0)
+    einkauf = person("einkauf", "Erik Einkauf", 0, boss)
+    it = person("it", "Ida IT", 0, boss)
     c.put(f"kataloge/{caf}/zuordnung", json={"nutzer": [anna], "pfleger": [kueche], "ausfuehrender": [kueche]}).raise_for_status()
     c.put(f"kataloge/{buero}/zuordnung", json={"nutzer": [anna]}).raise_for_status()
+    fachstellen(post, {"boss": boss, "vertreter": vertreter, "einkauf": einkauf, "it": it})
     print("Beispieldaten angelegt.")
+
+
+def fachstellen(post, p: dict) -> None:
+    """Fachstellen für Ausnahmeanträge: Medizintechnik*, IT*, Team ISM*, Einkauf, Geschäftsführung (* = bei Bedarf)."""
+    for i, (name, art, hinweis, mitglieder, ausfuehrend) in enumerate([
+        ("Medizintechnik", "bedarf", "Ankreuzen bei medizinischen Geräten und Zubehör.", [p["vertreter"]], False),
+        ("IT", "bedarf", "Ankreuzen, wenn etwas ans Netzwerk oder an einen PC angeschlossen wird oder Software dazugehört.", [p["it"]], False),
+        ("Team ISM (Datenschutz)", "bedarf", "Ankreuzen, wenn Patienten- oder Mitarbeiterdaten verarbeitet oder gespeichert werden.", [p["it"]], False),
+        ("Einkauf", "immer", "", [p["einkauf"]], True),
+        ("Geschäftsführung", "immer", "", [p["boss"]], False),
+    ], start=1):
+        post("fachstellen", {"name": name, "art": art, "hinweis": hinweis, "mitglieder": mitglieder, "ausfuehrend": ausfuehrend, "reihenfolge": i * 10})
 
 
 if __name__ == "__main__":

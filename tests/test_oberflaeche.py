@@ -56,3 +56,13 @@ def test_status_und_verlauf_vollstaendig():
     for rest in re.findall(r'_verlauf\(db, anforderung_id, [^,]+, ([^\n]*)', Path(ablauf.__file__).read_text(encoding="utf-8")):
         aktionen |= set(re.findall(r'"([a-z_]+)"', rest.split(", notiz")[0]))
     assert aktionen and aktionen <= set(TEXTE["verlauf"]), aktionen - set(TEXTE["verlauf"])
+
+
+def test_ausnahme_status_und_verlauf_vollstaendig():
+    from anforderungstool import ausnahme
+
+    assert set(ausnahme.STATUS) <= set(TEXTE["status"])
+    quelltext = Path(ausnahme.__file__).read_text(encoding="utf-8")
+    aktionen = set(re.findall(r'_verlauf\(db, [^,]+, [^,]+, "([a-z_]+)"', quelltext))
+    aktionen |= set(ausnahme.AUSFUEHRUNG[1:])  # bestellt, geliefert, erledigt kommen als Variable
+    assert aktionen and aktionen <= set(TEXTE["ausnahme"]["verlauf"]), aktionen - set(TEXTE["ausnahme"]["verlauf"])

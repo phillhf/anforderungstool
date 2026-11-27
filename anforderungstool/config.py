@@ -47,9 +47,10 @@ class Pfade:
         self.config = self.daten / "config.json"
         self.sicherungen = self.daten / "sicherungen"
         self.updates = self.daten / "updates"
+        self.anhaenge = self.daten / "anhaenge"
 
     def anlegen(self) -> None:
-        for p in (self.daten, self.logs, self.sicherungen):
+        for p in (self.daten, self.logs, self.sicherungen, self.anhaenge):
             p.mkdir(parents=True, exist_ok=True)
 
 

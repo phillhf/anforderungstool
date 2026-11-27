@@ -72,6 +72,27 @@ def tages_sicherung(db, pfade) -> None:
         aufraeumen(db, pfade)
 
 
+def anhaenge_sichern(pfade) -> int:
+    """Spiegelt neue Anhänge nach sicherungen/anhaenge. Anhänge ändern sich nie, deshalb reicht es, fehlende zu kopieren.
+
+    Gelöschte Anhänge bleiben in der Sicherung erhalten.
+    """
+    if not pfade.anhaenge.exists():
+        return 0
+    ziel_basis = pfade.sicherungen / "anhaenge"
+    neu = 0
+    for quelle in pfade.anhaenge.rglob("*"):
+        if not quelle.is_file():
+            continue
+        ziel = ziel_basis / quelle.relative_to(pfade.anhaenge)
+        if ziel.exists() and ziel.stat().st_size == quelle.stat().st_size:
+            continue
+        ziel.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(quelle, ziel)
+        neu += 1
+    return neu
+
+
 class Stuendlich:
     """Führt Aufgaben beim Start und danach stündlich aus (Sicherung, Erinnerungen)."""
 
