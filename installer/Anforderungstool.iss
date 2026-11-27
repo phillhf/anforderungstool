@@ -99,6 +99,7 @@ Filename: "{code:GetScheme}://localhost:{code:GetPort}"; Description: "Anforderu
 Filename: "{app}\service\Anforderungstool-Dienst.exe"; Parameters: "stop";      Flags: runhidden waituntilterminated; RunOnceId: "StopService"
 Filename: "{app}\service\Anforderungstool-Dienst.exe"; Parameters: "uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveService"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#AppName}"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveFirewall"
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""Anforderungstool Update"" /F"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveTask"
 
 [UninstallDelete]
 Type: files; Name: "{app}\Anforderungstool.url"
@@ -280,6 +281,8 @@ begin
   if not Exec(Svc, 'start', '', SW_HIDE, ewWaitUntilTerminated, RC) or (RC <> 0) then
     Fail('Der Windows-Dienst konnte nicht gestartet werden (Code ' + IntToStr(RC) + '). Ist der Port ' + GetPort('') + ' bereits belegt?');
 
+  { 4. Einmalige Aufgabe der Update-Funktion entfernen (falls das Update aus dem Tool gestartet wurde) }
+  Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /TN "Anforderungstool Update" /F', '', SW_HIDE, ewWaitUntilTerminated, RC);
 end;
 
 function GetCustomSetupExitCode: Integer;

@@ -15,6 +15,8 @@ Wer anfordert, sieht jederzeit, wo die Anforderung steht und wer was entschieden
 
 ## Funktionen
 
+- **Übersicht:** Nach der Anmeldung sieht jeder sofort, was er tun muss: Rückfragen, zu genehmigen, auszuführen. Dazu kommen die eigenen Anforderungen mit dem Hinweis, bei wem sie gerade liegen und seit wann.
+- **Genehmigungsweg vorher sichtbar:** Schon beim Anfordern zeigt das Tool, wer der Reihe nach entscheidet.
 - **Benutzer:** eigene Konten mit Passwort, wahlweise auch Anmeldung über Active Directory.
 - **Hierarchie:** Jede Person hat einen Vorgesetzten und eine Freigabegrenze pro Anforderung (0 €, ein Betrag oder unbegrenzt). Wer innerhalb der eigenen Grenze liegt, genehmigt sich selbst.
 - **Vertretung:** Für einen Zeitraum entscheidet eine andere Person im eigenen Namen. Im Verlauf steht „… in Vertretung für …“.
@@ -22,7 +24,10 @@ Wer anfordert, sieht jederzeit, wo die Anforderung steht und wer was entschieden
 - **Kostenstellen:** eine Liste, dazu eine Standard-Kostenstelle je Person.
 - **E-Mails** über SMTP. Pro Ereignis lässt sich ein- und ausschalten, ob eine E-Mail rausgeht.
 - **Statistik:** wer wie viel angefordert hat, nach Zeitraum, Person, Katalog und Kostenstelle.
+- **Erinnerungen:** Liegt eine Anforderung einige Werktage unbearbeitet, bekommt die zuständige Person eine E-Mail.
+- **Tagesliste zum Drucken** für die Ausführenden, mit Gesamtmenge je Produkt.
 - **Sicherung:** einmal täglich automatisch.
+- **Update aus dem Tool:** unter *Einstellungen → Update*.
 
 ## Installation
 
@@ -30,7 +35,7 @@ Wer anfordert, sieht jederzeit, wo die Anforderung steht und wer was entschieden
 2. Als Administrator ausführen und den Port wählen (Standard 8480).
 3. Im Browser `http://<Server>:<Port>` öffnen und das erste Konto anlegen. Unter *Einstellungen* zeigt eine Liste, was noch einzurichten ist.
 
-Das Tool läuft als Windows-Dienst `Anforderungstool`. Die Daten liegen in `C:\ProgramData\Anforderungstool` und bleiben bei Updates und bei der Deinstallation erhalten. Ein Update ist einfach das neue Setup.
+Das Tool läuft als Windows-Dienst `Anforderungstool`. Die Daten liegen in `C:\ProgramData\Anforderungstool` und bleiben bei Updates und bei der Deinstallation erhalten. Ein Update geht unter *Einstellungen → Update* direkt im Tool oder durch Ausführen des neuen Setups.
 
 Notfall-Passwort für ein Konto (als Administrator im Programmordner):
 

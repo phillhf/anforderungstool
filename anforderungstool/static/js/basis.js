@@ -63,6 +63,64 @@ export function nummer(id) {
   return `A-${String(id).padStart(4, "0")}`;
 }
 
+/** Ganze Tage zwischen einem UTC-Zeitstempel der Datenbank und heute (nach Ortsdatum) */
+export function tageSeit(utc) {
+  if (!utc) return 0;
+  const d = new Date(utc.replace(" ", "T") + "Z");
+  const tag = (x) => Date.UTC(x.getFullYear(), x.getMonth(), x.getDate());
+  return Math.max(0, Math.round((tag(new Date()) - tag(d)) / 86400000));
+}
+
+/** "seit heute", "seit gestern", "seit 4 Tagen" – ab 3 Tagen hervorgehoben */
+export function seitMarke(utc) {
+  const n = tageSeit(utc);
+  const text = n === 0 ? t("zeit.seit_heute") : n === 1 ? t("zeit.seit_gestern") : t("zeit.seit_tagen", { n });
+  return h(n >= 3 ? "span.seit.alt" : "span.seit", { title: zeitText(utc) }, text);
+}
+
+/** Abstand eines Liefertermins zu heute in Tagen (negativ = vorbei) */
+export function tageBis(iso) {
+  if (!iso) return null;
+  const [j, m, d] = iso.slice(0, 10).split("-").map(Number);
+  const jetzt = new Date();
+  return Math.round((Date.UTC(j, m - 1, d) - Date.UTC(jetzt.getFullYear(), jetzt.getMonth(), jetzt.getDate())) / 86400000);
+}
+
+/** Marke „überfällig“, „heute“, „morgen“ für Liefertermine */
+export function terminMarke(iso) {
+  const n = tageBis(iso);
+  if (n === null || n > 1) return null;
+  if (n < 0) return h("span.marke-klein.rot", t("zeit.ueberfaellig"));
+  return h(n === 0 ? "span.marke-klein.gelb" : "span.marke-klein", t(n === 0 ? "zeit.heute" : "zeit.morgen"));
+}
+
+export function grenzeDeckt(grenze, summe) {
+  return grenze === null || grenze === undefined || summe <= grenze + 1e-9;
+}
+
+/**
+ * Genehmigungsweg für eine Summe: die Personen der Kette bis zur ersten, deren Freigabegrenze reicht.
+ * kette = [{name, grenze, aktiv}, …] (zuerst die erste Stelle). erreichbar = false, wenn niemand genehmigen kann.
+ */
+export function wegBerechnen(kette, summe) {
+  const stationen = [];
+  for (const p of kette || []) {
+    if (p.aktiv === false) return { stationen, erreichbar: false };
+    const endgueltig = grenzeDeckt(p.grenze, summe);
+    stationen.push({ ...p, endgueltig });
+    if (endgueltig) return { stationen, erreichbar: true };
+  }
+  return { stationen, erreichbar: false };
+}
+
+/** Weg als Element: „Chef → Boss“, die endgültige Stelle hervorgehoben */
+export function wegAnzeige(weg, aktuellerIndex = -1) {
+  return h("span.weg", weg.stationen.map((s, i) => [
+    i ? h("span.pfeil", " → ") : null,
+    h(i === aktuellerIndex ? "strong.jetzt" : s.endgueltig ? "strong" : "span", s.name),
+  ]));
+}
+
 // ---------------------------------------------------------------- Server
 export class ApiFehler extends Error {
   constructor(status, detail, roh = "") {

@@ -1,6 +1,10 @@
 // Anforderungen: Listen (meine, genehmigen, ausführen, alle), Anlegen/Bearbeiten und Ansicht mit Verlauf
 
-import { api, datumText, fehlerMelden, formularDialog, geld, h, leeren, melden, nummer, statusMarke, t, zeitText, zustand, bestaetigen } from "./basis.js";
+import {
+  api, bestaetigen, datumText, fehlerMelden, formularDialog, geld, grenzeDeckt, h, heute, leeren, melden, nummer, seitMarke, statusMarke, t,
+  terminMarke, wegAnzeige, wegBerechnen, zeitText, zustand,
+} from "./basis.js";
+import { wartetBei } from "./start.js";
 
 // ---------------------------------------------------------------- Listen
 const FILTER = {
@@ -18,8 +22,9 @@ export async function zeigeListe(wurzel, ansicht) {
 
   const kopf = h(
     "div.seitenkopf",
-    h("h1", t(`liste.titel.${ansicht}`)),
-    ansicht === "meine" && ich.kataloge.length ? h("a.knopf", { href: "#/anforderung/neu" }, t("liste.neu")) : null
+    h("div", h("h1", t(`liste.titel.${ansicht}`)), h("p.untertitel", t(`liste.hilfe.${ansicht}`))),
+    ansicht === "meine" && ich.kataloge.length ? h("a.knopf", { href: "#/anforderung/neu" }, t("liste.neu")) : null,
+    ansicht === "ausfuehren" ? h("a.knopf.rand", { href: `#/ausfuehren/druck/${heute()}` }, `🖨 ${t("druck.knopf")}`) : null
   );
   const hinweis = ansicht === "meine" && !ich.kataloge.length ? h("div.info", t("liste.keine_kataloge")) : null;
   const reiter = h("div.reiter");
@@ -51,6 +56,7 @@ export async function zeigeListe(wurzel, ansicht) {
       return;
     }
     const mitAntragsteller = ansicht !== "meine";
+    const offeneAufgabe = unteransicht === "genehmigen";
     leeren(
       box,
       h(
@@ -67,15 +73,27 @@ export async function zeigeListe(wurzel, ansicht) {
               h("td", z.anlass || h("span.gedimmt", t("liste.ohne_anlass")), z.vertretung ? h("span.marke-klein.gelb", t("liste.vertretung")) : null),
               h("td.weg-schmal", z.katalog),
               mitAntragsteller ? h("td", z.antragsteller) : null,
-              h("td.weg-schmal", z.datum ? `${datumText(z.datum)}${z.uhrzeit ? `, ${z.uhrzeit}` : ""}` : "–"),
+              h(ansicht === "ausfuehren" ? "td" : "td.weg-schmal", z.datum ? `${datumText(z.datum)}${z.uhrzeit ? `, ${z.uhrzeit}` : ""}` : "–",
+                ansicht === "ausfuehren" && z.status === "genehmigt" ? terminMarke(z.datum) : null),
               h("td.betrag", geld(z.summe)),
-              h("td", statusMarke(z.status), z.status === "genehmigung" && z.bearbeiter ? h("small.gedimmt", ` ${t("liste.bei", { name: z.bearbeiter })}`) : null)
+              h("td.status-zelle",
+                offeneAufgabe ? h("span.status.genehmigung", t(z.endgueltig ? "aktion.genehmigen" : "aktion.befuerworten")) : statusMarke(z.status),
+                naechsterSchritt(z, unteransicht))
             )))
         )
       )
     );
   }
   await laden();
+}
+
+/** Zweite Zeile in der Statusspalte: bei wem es liegt und seit wann */
+function naechsterSchritt(z, ansicht) {
+  if (["erledigt", "abgelehnt"].includes(z.status)) return null;
+  if (z.status === "entwurf") return h("small.schritt", t("liste.noch_uebermitteln"));
+  if (ansicht === "genehmigen") return h("small.schritt", t("liste.wartet"), " ", seitMarke(z.seit));
+  const meinZug = ansicht === "meine" && z.status === "rueckfrage";
+  return h("small.schritt", meinZug ? h("strong.dran", t("liste.du_bist_dran")) : wartetBei(z), " · ", seitMarke(z.seit));
 }
 
 // ---------------------------------------------------------------- Einzelne Anforderung
@@ -131,7 +149,19 @@ function zeitleiste(a) {
   else if (a.status === "genehmigt") offen = t("verlauf.wartet_ausfuehrung", { katalog: a.katalog });
   if (offen) {
     const zusatz = a.status === "genehmigung" && a.bearbeiter_vertretung?.length ? t("verlauf.vertretung_aktiv", { namen: a.bearbeiter_vertretung.join(", ") }) : null;
-    punkte.push(h("li.jetzt", h("strong", offen), zusatz ? h("small", zusatz) : null));
+    const seit = a.verlauf.length ? a.verlauf[a.verlauf.length - 1].zeit : a.erstellt;
+    punkte.push(h("li.jetzt", h("strong", offen), h("small", seitMarke(seit), zusatz ? ` · ${zusatz}` : "")));
+  }
+  // Was danach noch kommt: weitere Stellen der Genehmigungskette, dann die Ausführung
+  if (a.status === "genehmigung") {
+    const weg = wegBerechnen(a.kette, a.summe);
+    for (const s of weg.stationen.slice(1)) {
+      punkte.push(h("li.spaeter", h("span", t(s.endgueltig ? "verlauf.danach_endgueltig" : "verlauf.danach_befuerworten", { name: s.name }))));
+    }
+    if (!weg.erreichbar) punkte.push(h("li.spaeter.problem", h("span", t("verlauf.weg_endet"))));
+    else punkte.push(h("li.spaeter", h("span", t("verlauf.danach_ausfuehrung", { katalog: a.katalog }))));
+  } else if (a.status === "rueckfrage") {
+    punkte.push(h("li.spaeter", h("span", t("verlauf.danach_neu"))));
   }
   if (!punkte.length) return h("p.leer", t("verlauf.leer"));
   return h("ol.zeitleiste", punkte);
@@ -168,6 +198,7 @@ function aktionsleiste(a, neu) {
   };
   if (k.includes("bearbeiten")) {
     if (a.status === "rueckfrage") text = t("anforderung.rueckfrage_text");
+    else text = t("anforderung.entwurf_text");
     knoepfe.push(h("a.knopf.rand", { href: `#/anforderung/${a.id}/bearbeiten` }, t("aktion.bearbeiten")));
     knoepfe.push(h("button.knopf", { onclick: () => uebermittelnDialog(a).then((r) => r && neu(r)) }, t(a.status === "rueckfrage" ? "aktion.erneut_uebermitteln" : "aktion.uebermitteln")));
   }
@@ -186,11 +217,14 @@ function aktionsleiste(a, neu) {
   }
   if (k.includes("genehmigen")) {
     const grenze = a.bearbeiter_grenze;
-    const reicht = grenze === null || grenze === undefined || a.summe <= grenze + 1e-9;
+    const reicht = grenzeDeckt(grenze, a.summe);
+    const naechste = (a.kette || [])[1];
+    const weiterMoeglich = reicht || (naechste && naechste.aktiv !== false);
     text = [
       a.vertretung_fuer ? h("strong", `${t("anforderung.du_vertrittst", { name: a.vertretung_fuer })} `) : null,
       reicht ? t("anforderung.grenze_reicht", { grenze: grenze === null ? t("benutzer.unbegrenzt") : geld(grenze) })
-             : t("anforderung.grenze_reicht_nicht", { grenze: geld(grenze) }),
+        : weiterMoeglich ? t("anforderung.grenze_reicht_nicht", { grenze: geld(grenze), name: naechste.name })
+        : h("span.fehlertext", t("anforderung.grenze_reicht_nicht_ende", { grenze: geld(grenze) })),
     ];
     const entscheiden = (aktion, pflicht) => {
       const name = aktion === "genehmigen" && !reicht ? t("aktion.befuerworten") : t(`aktion.${aktion}`);
@@ -210,7 +244,7 @@ function aktionsleiste(a, neu) {
         }
       });
     };
-    knoepfe.push(h("button.knopf.gruen", { onclick: () => entscheiden("genehmigen", false) }, reicht ? t("aktion.genehmigen") : t("aktion.befuerworten")));
+    if (weiterMoeglich) knoepfe.push(h("button.knopf.gruen", { onclick: () => entscheiden("genehmigen", false) }, reicht ? t("aktion.genehmigen") : t("aktion.befuerworten")));
     knoepfe.push(h("button.knopf.rand", { onclick: () => entscheiden("rueckfrage", true) }, t("aktion.rueckfrage")));
     knoepfe.push(h("button.knopf.gefahr", { onclick: () => entscheiden("ablehnen", true) }, t("aktion.ablehnen")));
   }
@@ -238,7 +272,8 @@ async function uebermittelnDialog(a) {
   const felder = a.status === "rueckfrage" ? [{ name: "notiz", label: t("anforderung.antwort"), typ: "textfeld" }] : [];
   const ergebnis = await formularDialog({
     titel: t(a.status === "rueckfrage" ? "aktion.erneut_uebermitteln" : "aktion.uebermitteln"),
-    felder: [{ typ: "element", name: "_info", element: h("p", t("anforderung.uebermitteln_frage", { summe: geld(a.summe) })), lesen: () => null }, ...felder],
+    felder: [{ typ: "element", name: "_info", lesen: () => null,
+      element: h("div", h("p", t("anforderung.uebermitteln_frage", { summe: geld(a.summe) })), wegHinweis(a.summe)) }, ...felder],
     speichernText: t("aktion.uebermitteln"),
     speichern: (w) => api(`anforderungen/${a.id}/uebermitteln`, { methode: "POST", daten: { notiz: w.notiz || "" } }),
   });
@@ -248,6 +283,16 @@ async function uebermittelnDialog(a) {
     return ergebnis;
   }
   return null;
+}
+
+/** Was passiert beim Übermitteln? Sofort genehmigt oder an wen es geht. */
+function wegHinweis(summe) {
+  const ich = zustand.ich;
+  if (!summe) return null;
+  if (grenzeDeckt(ich.grenze, summe)) return h("p.weg-hinweis.gut", t("editor.weg_selbst"));
+  const weg = wegBerechnen(ich.kette, summe);
+  if (!weg.erreichbar) return h("p.weg-hinweis.problem", t("editor.weg_keiner"));
+  return h("p.weg-hinweis", t("editor.weg"), " ", wegAnzeige(weg));
 }
 
 // ---------------------------------------------------------------- Anlegen und Bearbeiten
@@ -288,13 +333,16 @@ async function zeigeEditor(wurzel, a) {
 
   const produktBox = h("div");
   const summeEl = h("div.summe");
+  const wegEl = h("div.weg-box");
   const fehlerEl = h("p.fehlertext", { hidden: true });
   let produkte = [];
 
   function summeZeigen() {
     let s = 0;
     for (const p of produkte) s += (mengen.get(p.id) || 0) * p.preis;
-    summeEl.textContent = `${t("feld.summe")}: ${geld(Math.round(s * 100) / 100)}`;
+    s = Math.round(s * 100) / 100;
+    summeEl.textContent = `${t("feld.summe")}: ${geld(s)}`;
+    leeren(wegEl, wegHinweis(s));
   }
 
   async function produkteLaden() {
@@ -415,7 +463,7 @@ async function zeigeEditor(wurzel, a) {
     h("div.box",
       h("h2", t("editor.schritt_katalog")),
       kataloge.length > 1 || !katalogId ? feld("katalog", katalogAuswahl, true) : h("p", h("strong", kataloge[0].name)),
-      produktBox, summeEl),
+      produktBox, summeEl, wegEl),
     h("div.box",
       h("h2", t("editor.schritt_angaben")),
       h("div.raster", feld("anlass", eingaben.anlass, true), feld("datum", eingaben.datum, true), feld("uhrzeit", eingaben.uhrzeit),
@@ -425,4 +473,35 @@ async function zeigeEditor(wurzel, a) {
     h("div.knopfreihe", knopfUebermitteln, knopfSpeichern, h("a.knopf-flach", { href: a ? `#/anforderung/${a.id}` : "#/anforderungen" }, t("allgemein.abbrechen")))
   );
   await produkteLaden();
+}
+
+// ---------------------------------------------------------------- Tagesliste für die Ausführenden
+export async function zeigeTagesliste(wurzel, tag) {
+  tag = /^\d{4}-\d{2}-\d{2}$/.test(tag || "") ? tag : heute();
+  const d = await api(`tagesliste?datum=${tag}`);
+  const datum = h("input", { type: "date", value: tag, onchange: (e) => e.target.value && (location.hash = `#/ausfuehren/druck/${e.target.value}`) });
+  const menge = (m) => String(m).replace(".", ",");
+  leeren(
+    wurzel,
+    h("div.seitenkopf.nicht-drucken",
+      h("div", h("a.knopf-flach", { href: "#/ausfuehren" }, `← ${t("allgemein.zurueck")}`), h("h1", t("druck.titel"))),
+      h("div.knopfreihe", datum, h("button.knopf", { onclick: () => window.print() }, `🖨 ${t("druck.drucken")}`))),
+    h("div.druckblatt",
+      h("h1.nur-drucken", `${t("druck.titel")} – ${datumText(tag)}`),
+      !d.anforderungen.length ? h("p.leer", t("druck.leer", { datum: datumText(tag) })) : [
+        h("h2", t("druck.gesamt")),
+        h("table.tabelle.druck-summen",
+          h("thead", h("tr", h("th", t("feld.katalog")), h("th", t("feld.produkt")), h("th.betrag", t("feld.menge")))),
+          h("tbody", d.summen.map((x) => h("tr", h("td", x.katalog), h("td", x.name), h("td.betrag", `${menge(x.menge)} ${x.einheit}`))))),
+        h("h2", t("druck.einzeln", { n: d.anforderungen.length })),
+        d.anforderungen.map((a) => h("section.druck-eintrag",
+          h("div.druck-kopf",
+            h("strong", `${a.uhrzeit || "–"} · ${a.ort || "–"}`),
+            h("span", `${nummer(a.id)} · ${a.anlass}`),
+            a.status === "erledigt" ? h("span.status.erledigt", t("status.erledigt")) : h("span.haken-feld", "☐")),
+          h("div.druck-zeile", `${a.katalog} · ${t("feld.antragsteller")}: ${a.antragsteller} · ${t("feld.kostenstelle")}: ${a.kostenstelle_nummer || "–"}`),
+          h("ul.druck-positionen", a.positionen.map((p) => h("li", `${menge(p.menge)} ${p.einheit} ${p.name}`))),
+          a.bemerkung ? h("div.druck-zeile", `${t("feld.bemerkung")}: ${a.bemerkung}`) : null)),
+      ])
+  );
 }

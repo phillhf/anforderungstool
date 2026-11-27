@@ -126,6 +126,8 @@ class EinstellungenDaten(BaseModel):
     sicherung_anzahl: int | None = Field(default=None, ge=1, le=365)
     sitzung_inaktiv_stunden: float | None = Field(default=None, ge=0.25, le=24 * 14)
     sitzung_ad_stunden: float | None = Field(default=None, ge=1, le=24 * 14)
+    erinnerung_tage: int | None = Field(default=None, ge=0, le=30)  # 0 = keine Erinnerungen
+    erinnerung_vorgesetzter: bool | None = None
 
 
 class SmtpDaten(BaseModel):
@@ -190,7 +192,12 @@ def erstelle_app(pfade: Pfade, hintergrund: bool = True) -> FastAPI:
     pfade.anlegen()
     db = Datenbank(pfade.datenbank)
     versand = mail.Versand(db)
-    auto_sicherung = wartung.AutoSicherung(db, pfade)
+
+    def erinnerungen() -> None:
+        if ablauf.erinnern(db):
+            versand.wecken()
+
+    stuendlich = wartung.Stuendlich([lambda: wartung.tages_sicherung(db, pfade), erinnerungen])
     bremse = auth.Anmeldebremse()
 
     @asynccontextmanager
@@ -198,9 +205,9 @@ def erstelle_app(pfade: Pfade, hintergrund: bool = True) -> FastAPI:
         auth.alte_sitzungen_loeschen(db)
         if hintergrund:
             versand.starten()
-            auto_sicherung.starten()
+            stuendlich.starten()
         yield
-        auto_sicherung.stoppen()
+        stuendlich.stoppen()
         versand.stoppen()
         db.schliessen()
 
@@ -209,6 +216,7 @@ def erstelle_app(pfade: Pfade, hintergrund: bool = True) -> FastAPI:
     app.state.pfade = pfade
     app.state.versand = versand
     app.state.ldap_verbindung = None  # Tests setzen hier eine Ersatzverbindung
+    app.state.github = None  # Tests setzen hier eine Ersatzabfrage für die Update-Prüfung
 
     @app.exception_handler(ablauf.AblaufFehler)
     async def _ablauf_fehler(request: Request, ex: ablauf.AblaufFehler):
@@ -353,11 +361,29 @@ def erstelle_app(pfade: Pfade, hintergrund: bool = True) -> FastAPI:
             "genehmiger": bool(db.eins("SELECT 1 FROM benutzer WHERE vorgesetzter_id = ? AND aktiv = 1", (ich["id"],))
                                or ablauf.vertretene(db, ich["id"])),
             "offen": ablauf.offene_zahlen(db, ich),
+            "kette": ablauf.kette_nach_oben(db, ich["id"]),
+            **ablauf.vertretungen_heute(db, ich["id"]),
         }
 
     @app.get("/api/offen")
     def offen(ich: dict = Depends(angemeldet)):
         return ablauf.offene_zahlen(db, ich)
+
+    @app.get("/api/aufgaben")
+    def aufgaben(ich: dict = Depends(angemeldet)):
+        daten = ablauf.aufgaben(db, ich)
+        if "verwalten" in ich["rechte"]:
+            daten["verwaltung"] = {
+                "mail_fehlt": not mail.eingerichtet(db),
+                "adresse_fehlt": not db.einstellung("adresse", ""),
+                "mail_fehler": db.eins("SELECT COUNT(*) AS n FROM mails WHERE status = 'fehler'")["n"],
+                "hierarchie": len(ablauf.hierarchie_hinweise(db)),
+            }
+        return daten
+
+    @app.get("/api/tagesliste")
+    def tagesliste(datum: date, ich: dict = Depends(angemeldet)):
+        return ablauf.tagesliste(db, ich, datum.isoformat())
 
     # ---------------------------------------------------------------- Anforderungen
     def _sichtbar(anforderung_id: int, ich: dict) -> dict:
@@ -375,6 +401,9 @@ def erstelle_app(pfade: Pfade, hintergrund: bool = True) -> FastAPI:
             g = ablauf.benutzer(db, a["bearbeiter_id"])
             a["bearbeiter_grenze"] = g["grenze"]
             a["bearbeiter_vertretung"] = [v["anzeigename"] for v in ablauf.vertreter_von(db, g["id"])]
+            # Genehmigungsweg ab der zuständigen Person, damit jeder sieht, wie es weitergeht
+            a["kette"] = [{"id": g["id"], "name": g["anzeigename"], "grenze": g["grenze"], "aktiv": bool(g["aktiv"])},
+                          *ablauf.kette_nach_oben(db, g["id"])]
         return a
 
     @app.get("/api/anforderungen")
@@ -717,6 +746,8 @@ def erstelle_app(pfade: Pfade, hintergrund: bool = True) -> FastAPI:
             "sicherung_anzahl": db.einstellung("sicherung_anzahl", wartung.STANDARD_ANZAHL),
             "sitzung_inaktiv_stunden": inaktiv,
             "sitzung_ad_stunden": ad,
+            "erinnerung_tage": db.einstellung("erinnerung_tage", ablauf.STANDARD_ERINNERUNG_TAGE),
+            "erinnerung_vorgesetzter": bool(db.einstellung("erinnerung_vorgesetzter", False)),
             "smtp": smtp,
             "ldap": verzeichnis.einstellungen(db),
             "rechte": list(RECHTE),
@@ -732,7 +763,7 @@ def erstelle_app(pfade: Pfade, hintergrund: bool = True) -> FastAPI:
         if daten.mail_ereignisse is not None:
             erlaubt = {"neue_aufgabe", "entscheidung", "genehmigt", "erledigt"}
             db.setze_einstellung("mail_ereignisse", {k: v for k, v in daten.mail_ereignisse.items() if k in erlaubt})
-        for feld in ("sicherung_anzahl", "sitzung_inaktiv_stunden", "sitzung_ad_stunden"):
+        for feld in ("sicherung_anzahl", "sitzung_inaktiv_stunden", "sitzung_ad_stunden", "erinnerung_tage", "erinnerung_vorgesetzter"):
             wert = getattr(daten, feld)
             if wert is not None:
                 db.setze_einstellung(feld, wert)
@@ -797,6 +828,26 @@ def erstelle_app(pfade: Pfade, hintergrund: bool = True) -> FastAPI:
     @app.post("/api/sicherungen")
     def sicherung_neu(ich: dict = Depends(verwalten)):
         return {"name": wartung.sicherung_anlegen(db, pfade).name}
+
+    # ---------------------------------------------------------------- Update
+    @app.get("/api/update")
+    def update(neu: bool = False, ich: dict = Depends(verwalten)):
+        return wartung.update_pruefen(neu, app.state.github)
+
+    @app.post("/api/update")
+    def update_starten(ich: dict = Depends(verwalten)):
+        info = wartung.update_pruefen(True, app.state.github)
+        if not info.get("verfuegbar"):
+            raise fehler(400, "kein_update")
+        try:
+            wartung.sicherung_anlegen(db, pfade, "vor-update")
+            version = wartung.update_installieren(pfade, info)
+        except wartung.WartungsFehler as ex:
+            raise fehler(400, ex.code)
+        except Exception as ex:
+            log.exception("Update fehlgeschlagen")
+            raise fehler(500, "update_fehlgeschlagen", grund=str(ex)[:200])
+        return {"ok": True, "version": version}
 
     # ---------------------------------------------------------------- Oberfläche
     static = static_ordner()

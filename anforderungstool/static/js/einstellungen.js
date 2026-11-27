@@ -1,14 +1,14 @@
-// Einstellungen (nur Admins): Einrichtung, Adresse, E-Mail (SMTP), Active Directory, Sicherungen
+// Einstellungen (nur Admins): Einrichtung, Adresse, E-Mail (SMTP) mit Erinnerungen, Active Directory, Sicherungen, Update
 
-import { api, fehlerMelden, formularDialog, h, leeren, melden, t, zeitText } from "./basis.js";
+import { api, bestaetigen, fehlerMelden, formularDialog, h, leeren, melden, t, zeitText, zustand } from "./basis.js";
 
-const REITER = ["allgemein", "email", "ad", "sicherung"];
+const REITER = ["allgemein", "email", "ad", "sicherung", "update"];
 
 export async function zeigeEinstellungen(wurzel, [reiter = "allgemein"]) {
   if (!REITER.includes(reiter)) reiter = "allgemein";
   const e = await api("einstellungen");
   const neu = () => zeigeEinstellungen(wurzel, [reiter]);
-  const inhalt = { allgemein, email, ad, sicherung }[reiter];
+  const inhalt = { allgemein, email, ad, sicherung, update }[reiter];
   leeren(
     wurzel,
     h("div.seitenkopf", h("h1", t("einstellungen.titel"))),
@@ -81,6 +81,8 @@ async function email(e, neu) {
     absender: h("input", { type: "email", value: s.absender, placeholder: "anforderungen@klinik.local" }),
   };
   const ereignisse = Object.keys(e.mail_ereignisse).map((k) => [k, h("input", { type: "checkbox", checked: e.mail_ereignisse[k] })]);
+  const erinnerungTage = h("input", { type: "number", min: 0, max: 30, step: 1, value: e.erinnerung_tage });
+  const erinnerungOben = h("input", { type: "checkbox", checked: e.erinnerung_vorgesetzter });
   const mails = await api("mails");
 
   return [
@@ -110,6 +112,15 @@ async function email(e, neu) {
       ereignisse.map(([k, el]) => h("label.feld.haken", el, h("span", t(`email.ereignis.${k}`)))),
       h("button.knopf", { onclick: () => speichernUnd("einstellungen", { mail_ereignisse: Object.fromEntries(ereignisse.map(([k, el]) => [k, el.checked])) }, neu) },
         t("allgemein.speichern"))),
+    h("div.box",
+      h("h2", t("erinnerung.titel")),
+      h("p.hinweis", t("erinnerung.hilfe")),
+      feld(t("erinnerung.tage"), erinnerungTage, t("erinnerung.tage_hilfe")),
+      h("label.feld.haken", erinnerungOben, h("span", t("erinnerung.vorgesetzter"))),
+      h("button.knopf", {
+        onclick: () => speichernUnd("einstellungen", { erinnerung_tage: Math.max(0, Math.round(Number(erinnerungTage.value) || 0)),
+          erinnerung_vorgesetzter: erinnerungOben.checked }, neu),
+      }, t("allgemein.speichern"))),
     h("div.box",
       h("h2", t("email.verlauf")),
       !mails.length ? h("p.leer", t("email.verlauf_leer")) : h("div.tabelle-rahmen", h("table.tabelle",
@@ -189,4 +200,59 @@ async function sicherung(e, neu) {
     !liste.length ? h("p.leer", t("sicherung.leer")) : h("table.tabelle",
       h("thead", h("tr", h("th", t("sicherung.datei")), h("th", t("sicherung.zeit")), h("th.betrag", t("sicherung.groesse")))),
       h("tbody", liste.map((s) => h("tr", h("td", s.name), h("td", new Date(s.zeit).toLocaleString("de-DE")), h("td.betrag", `${Math.ceil(s.groesse / 1024)} KB`))))));
+}
+
+// ---------------------------------------------------------------- Update
+async function update() {
+  const inhalt = h("div");
+  const box = h("div.box",
+    h("div.box-kopf", h("h2", t("update.titel")), h("button.knopf-flach", { onclick: () => pruefen(true) }, t("update.pruefen"))),
+    inhalt);
+
+  async function pruefen(neu) {
+    leeren(inhalt, h("p.gedimmt", t("update.wird_geprueft")));
+    let u;
+    try {
+      u = await api(`update${neu ? "?neu=true" : ""}`);
+    } catch (err) {
+      fehlerMelden(err);
+      return;
+    }
+    if (u.fehler) return leeren(inhalt, h("p", t("update.version", { version: u.aktuell })), h("p.warnung", t("update.keine_verbindung")));
+    leeren(inhalt,
+      h("p", t("update.version", { version: u.aktuell })),
+      u.verfuegbar ? [
+        h("p.gut", h("strong", t("update.verfuegbar", { version: u.neueste }))),
+        u.notizen ? h("pre.notizen", u.notizen) : null,
+        u.installierbar
+          ? h("div.knopfreihe", h("button.knopf", { onclick: () => installieren(u) }, t("update.installieren")),
+            h("small.gedimmt", t("update.hinweis")))
+          : h("p.hinweis", t("update.manuell"), " ", h("a", { href: u.url, target: "_blank", rel: "noopener" }, u.url)),
+      ] : h("p.gut", t("update.aktuell")));
+  }
+
+  async function installieren(u) {
+    if (!(await bestaetigen(t("update.wirklich", { version: u.neueste }), t("update.installieren")))) return;
+    leeren(inhalt, h("p", t("update.laeuft")), h("progress"));
+    try {
+      await api("update", { methode: "POST" });
+    } catch (err) {
+      fehlerMelden(err);
+      return pruefen(true);
+    }
+    // Warten, bis der Dienst mit der neuen Version antwortet; dann lädt die Seite neu (siehe app.js)
+    const ende = Date.now() + 10 * 60 * 1000;
+    while (Date.now() < ende) {
+      await new Promise((r) => setTimeout(r, 5000));
+      try {
+        const r = await fetch("api/status", { cache: "no-store" });
+        const { version } = await r.json();
+        if (version && version !== zustand.version) return location.reload();
+      } catch {}
+    }
+    leeren(inhalt, h("p.warnung", t("update.zeitueberschreitung")));
+  }
+
+  pruefen(false);
+  return box;
 }

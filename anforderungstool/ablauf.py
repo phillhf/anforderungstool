@@ -14,7 +14,7 @@ Grenze NULL = unbegrenzt.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from . import mail
 
@@ -80,6 +80,35 @@ def kette_pruefen(db, benutzer_id: int, vorgesetzter_id: int | None) -> None:
         if row is None:
             raise AblaufFehler(400, "benutzer_unbekannt")
         aktuell = row["vorgesetzter_id"]
+
+
+def kette_nach_oben(db, benutzer_id: int) -> list[dict]:
+    """Vorgesetzte einer Person der Reihe nach (für die Anzeige des Genehmigungswegs).
+
+    Endet bei der obersten Stelle oder bei einem deaktivierten Vorgesetzten (der dann mit aktiv = False dabei ist).
+    """
+    kette, gesehen = [], {benutzer_id}
+    person = benutzer(db, benutzer_id)
+    while person and person["vorgesetzter_id"] is not None and person["vorgesetzter_id"] not in gesehen:
+        person = benutzer(db, person["vorgesetzter_id"])
+        if person is None:
+            break
+        gesehen.add(person["id"])
+        kette.append({"id": person["id"], "name": person["anzeigename"], "grenze": person["grenze"], "aktiv": bool(person["aktiv"])})
+        if not person["aktiv"]:
+            break
+    return kette
+
+
+def vertretungen_heute(db, benutzer_id: int, tag: str | None = None) -> dict:
+    """Für die Hinweisleiste: Wen vertrete ich gerade, wer vertritt mich gerade?"""
+    tag = tag or heute()
+    ich_vertrete = db.alle("""SELECT b.anzeigename AS name, v.bis FROM vertretungen v JOIN benutzer b ON b.id = v.benutzer_id
+                               WHERE v.vertreter_id = ? AND v.von <= ? AND v.bis >= ? ORDER BY b.anzeigename""", (benutzer_id, tag, tag))
+    vertreten_durch = db.alle("""SELECT b.anzeigename AS name, v.bis FROM vertretungen v JOIN benutzer b ON b.id = v.vertreter_id
+                                  WHERE v.benutzer_id = ? AND v.von <= ? AND v.bis >= ? AND b.aktiv = 1 ORDER BY b.anzeigename""",
+                              (benutzer_id, tag, tag))
+    return {"ich_vertrete": ich_vertrete, "vertreten_durch": vertreten_durch}
 
 
 def hierarchie_hinweise(db) -> list[dict]:
@@ -346,9 +375,10 @@ def erledigen(db, ich: dict, anforderung_id: int, notiz: str = "") -> dict:
 
 # --------------------------------------------------------------------------- Listen
 def liste(db, ich: dict, ansicht: str, status: str | None = None) -> list[dict]:
-    basis = """SELECT a.id, a.status, a.summe, a.anlass, a.datum, a.uhrzeit, a.ort, a.erstellt, a.uebermittelt,
+    basis = """SELECT a.id, a.status, a.summe, a.anlass, a.datum, a.uhrzeit, a.ort, a.erstellt, a.uebermittelt, a.bearbeiter_id,
                       k.name AS katalog, s.anzeigename AS antragsteller, g.anzeigename AS bearbeiter,
-                      ks.nummer AS kostenstelle_nummer
+                      ks.nummer AS kostenstelle_nummer,
+                      COALESCE((SELECT MAX(v.zeit) FROM verlauf v WHERE v.anforderung_id = a.id), a.erstellt) AS seit
                  FROM anforderungen a
                  JOIN kataloge k ON k.id = a.katalog_id
                  JOIN benutzer s ON s.id = a.antragsteller_id
@@ -381,17 +411,22 @@ def liste(db, ich: dict, ansicht: str, status: str | None = None) -> list[dict]:
     if status:
         bedingungen.append("a.status = ?")
         werte.append(status)
-    sql = basis + " WHERE " + " AND ".join(bedingungen) + " ORDER BY COALESCE(a.uebermittelt, a.erstellt) DESC, a.id DESC LIMIT 500"
+    if ansicht == "ausfuehren" and status == "genehmigt":
+        reihenfolge = "a.datum IS NULL, a.datum, a.uhrzeit, a.id"  # was zuerst geliefert werden muss, steht oben
+    elif ansicht == "genehmigen":
+        reihenfolge = "seit, a.id"  # was am längsten wartet, steht oben
+    else:
+        reihenfolge = "COALESCE(a.uebermittelt, a.erstellt) DESC, a.id DESC"
+    sql = basis + " WHERE " + " AND ".join(bedingungen) + f" ORDER BY {reihenfolge} LIMIT 500"
     zeilen = db.alle(sql, tuple(werte))
     if ansicht == "genehmigen":
-        for z in zeilen:
-            z["vertretung"] = False
         vertreten = set(vertretene(db, ich["id"]))
-        if vertreten:
-            bearbeiter = {r["id"]: r["bearbeiter_id"] for r in db.alle(
-                f"SELECT id, bearbeiter_id FROM anforderungen WHERE id IN ({','.join(str(z['id']) for z in zeilen) or '0'})")}
-            for z in zeilen:
-                z["vertretung"] = bearbeiter.get(z["id"]) in vertreten
+        grenzen: dict[int, float | None] = {}
+        for z in zeilen:
+            z["vertretung"] = z["bearbeiter_id"] in vertreten
+            if z["bearbeiter_id"] not in grenzen:
+                grenzen[z["bearbeiter_id"]] = benutzer(db, z["bearbeiter_id"])["grenze"]
+            z["endgueltig"] = grenze_deckt(grenzen[z["bearbeiter_id"]], z["summe"])  # Genehmigen oder nur Befürworten?
     return zeilen
 
 
@@ -406,6 +441,111 @@ def offene_zahlen(db, ich: dict) -> dict:
                              tuple(kat))["n"]
     rueckfragen = db.eins("SELECT COUNT(*) AS n FROM anforderungen WHERE status = 'rueckfrage' AND antragsteller_id = ?", (ich["id"],))["n"]
     return {"genehmigen": genehmigen, "ausfuehren": ausfuehren, "rueckfragen": rueckfragen}
+
+
+def aufgaben(db, ich: dict) -> dict:
+    """Alles für die Startseite: Was muss ich tun, was läuft bei mir?"""
+    rueckfragen = db.alle("""
+        SELECT a.id, a.anlass, a.summe, a.datum, a.uhrzeit, k.name AS katalog,
+               v.notiz, b.anzeigename AS von, n.anzeigename AS im_namen_von, v.zeit AS seit
+          FROM anforderungen a
+          JOIN kataloge k ON k.id = a.katalog_id
+          LEFT JOIN verlauf v ON v.id = (SELECT MAX(id) FROM verlauf WHERE anforderung_id = a.id AND aktion = 'rueckfrage')
+          LEFT JOIN benutzer b ON b.id = v.benutzer_id
+          LEFT JOIN benutzer n ON n.id = v.im_namen_von
+         WHERE a.status = 'rueckfrage' AND a.antragsteller_id = ?
+         ORDER BY v.zeit""", (ich["id"],))
+    ausfuehren = liste(db, ich, "ausfuehren", "genehmigt") if kataloge_fuer(db, ich["id"], "ausfuehrender") else []
+    eigene = liste(db, ich, "meine")
+    return {
+        "rueckfragen": rueckfragen,
+        "genehmigen": liste(db, ich, "genehmigen"),
+        "ausfuehren": ausfuehren,
+        "entwuerfe": [z for z in eigene if z["status"] == "entwurf"],
+        "laufend": [z for z in eigene if z["status"] in ("genehmigung", "genehmigt")],
+    }
+
+
+def tagesliste(db, ich: dict, tag: str) -> dict:
+    """Druckliste für die Ausführenden: genehmigte und erledigte Anforderungen eines Tages mit allen Produkten."""
+    if "verwalten" in ich["rechte"]:
+        kat = [r["id"] for r in db.alle("SELECT id FROM kataloge")]
+    else:
+        kat = kataloge_fuer(db, ich["id"], "ausfuehrender")
+    if not kat:
+        raise AblaufFehler(403, "keine_berechtigung")
+    ids = [r["id"] for r in db.alle(
+        f"""SELECT id FROM anforderungen WHERE datum = ? AND status IN ('genehmigt', 'erledigt')
+             AND katalog_id IN ({','.join('?' * len(kat))}) ORDER BY uhrzeit = '', uhrzeit, id""", (tag, *kat))]
+    eintraege = [laden(db, i) for i in ids]
+    summen: dict[tuple, dict] = {}
+    for a in eintraege:
+        for p in a["positionen"]:
+            e = summen.setdefault((a["katalog"], p["name"], p["einheit"]),
+                                  {"katalog": a["katalog"], "name": p["name"], "einheit": p["einheit"], "menge": 0})
+            e["menge"] += p["menge"]
+    return {"datum": tag, "anforderungen": eintraege, "summen": sorted(summen.values(), key=lambda e: (e["katalog"], e["name"]))}
+
+
+# --------------------------------------------------------------------------- Erinnerungen
+STANDARD_ERINNERUNG_TAGE = 3
+
+
+def werktage_zwischen(von: date, bis: date) -> int:
+    """Anzahl der Werktage (Mo–Fr) nach „von“ bis einschließlich „bis“."""
+    n, tag = 0, von
+    while tag < bis:
+        tag += timedelta(days=1)
+        if tag.weekday() < 5:
+            n += 1
+    return n
+
+
+def erinnern(db, heute_: date | None = None) -> int:
+    """Erinnert an Anforderungen, die seit einigen Werktagen unbearbeitet liegen. Gibt die Zahl der Erinnerungen zurück.
+
+    In Genehmigung → Genehmiger und seine Vertretung, wahlweise mit Kopie an dessen Vorgesetzten.
+    Rückfrage      → Antragsteller.
+    Tut sich weiter nichts, folgt nach derselben Zahl Werktage die nächste Erinnerung.
+    """
+    tage = int(db.einstellung("erinnerung_tage", STANDARD_ERINNERUNG_TAGE) or 0)
+    heute_ = heute_ or date.today()
+    if tage <= 0 or heute_.weekday() >= 5:
+        return 0
+    anzahl = 0
+    for r in db.alle("""SELECT a.id, a.status, a.bearbeiter_id, a.antragsteller_id, a.erinnert,
+                               (SELECT MAX(zeit) FROM verlauf v WHERE v.anforderung_id = a.id) AS seit
+                          FROM anforderungen a WHERE a.status IN ('genehmigung', 'rueckfrage')"""):
+        if not r["seit"]:
+            continue
+        bezug = max(r["seit"], r["erinnert"] or "")
+        # Zeitstempel sind UTC; für das Zählen der Werktage reicht das Datum
+        if werktage_zwischen(date.fromisoformat(bezug[:10]), heute_) < tage:
+            continue
+        seit_tagen = werktage_zwischen(date.fromisoformat(r["seit"][:10]), heute_)
+        a = laden(db, r["id"])
+        if r["status"] == "genehmigung":
+            person = benutzer(db, r["bearbeiter_id"])
+            betreff = f"Erinnerung: Anforderung Nr. {a['id']} wartet auf Ihre Entscheidung – {a['anlass']}"
+            mail.einreihen(db, person["email"], betreff, _text(
+                db, a, f"Hallo {person['anzeigename']},\n\ndiese Anforderung wartet seit {seit_tagen} Werktagen auf Ihre Entscheidung."))
+            for v in vertreter_von(db, person["id"]):
+                mail.einreihen(db, v["email"], betreff, _text(
+                    db, a, f"Hallo {v['anzeigename']},\n\ndiese Anforderung wartet seit {seit_tagen} Werktagen auf die Entscheidung "
+                           f"von {person['anzeigename']}. Sie sind derzeit als Vertretung eingetragen."))
+            oben = benutzer(db, person["vorgesetzter_id"]) if db.einstellung("erinnerung_vorgesetzter", False) else None
+            if oben and oben["aktiv"]:
+                mail.einreihen(db, oben["email"], f"Zur Information: Anforderung Nr. {a['id']} wartet bei {person['anzeigename']}", _text(
+                    db, a, f"Hallo {oben['anzeigename']},\n\nzur Information: Diese Anforderung wartet seit {seit_tagen} Werktagen "
+                           f"auf die Entscheidung von {person['anzeigename']}."))
+        else:
+            person = benutzer(db, r["antragsteller_id"])
+            mail.einreihen(db, person["email"], f"Erinnerung: Rückfrage zu Ihrer Anforderung Nr. {a['id']} – {a['anlass']}", _text(
+                db, a, f"Hallo {person['anzeigename']},\n\nzu Ihrer Anforderung gibt es seit {seit_tagen} Werktagen eine Rückfrage. "
+                       "Bitte ändern oder ergänzen Sie sie und übermitteln Sie sie erneut."))
+        db.ausfuehren("UPDATE anforderungen SET erinnert = datetime('now') WHERE id = ?", (r["id"],))
+        anzahl += 1
+    return anzahl
 
 
 # --------------------------------------------------------------------------- Statistik

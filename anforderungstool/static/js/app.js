@@ -1,11 +1,12 @@
 // Einstieg: Anmeldung, Navigation und Seitenwechsel (Hash-Routing: #/anforderung/3, #/kataloge …)
 
-import { api, darf, fehlerMelden, formularDialog, h, leeren, melden, spracheLaden, t, uebersetzen, wennAbgemeldet, zustand } from "./basis.js";
-import { zeigeAnforderung, zeigeListe } from "./anforderungen.js";
+import { api, darf, datumText, fehlerMelden, formularDialog, h, leeren, melden, spracheLaden, t, uebersetzen, wennAbgemeldet, zustand } from "./basis.js";
+import { zeigeAnforderung, zeigeListe, zeigeTagesliste } from "./anforderungen.js";
 import { zeigeBenutzer } from "./benutzer.js";
 import { zeigeEinstellungen } from "./einstellungen.js";
 import { zeigeKataloge } from "./kataloge.js";
 import { zeigeKostenstellen } from "./kostenstellen.js";
+import { zeigeStart } from "./start.js";
 import { zeigeStatistik } from "./statistik.js";
 import { zeigeVertretung } from "./vertretung.js";
 
@@ -13,10 +14,12 @@ const inhalt = document.getElementById("inhalt");
 
 // sichtbar(ich) entscheidet, ob der Menüpunkt erscheint; zaehler(ich) zeigt eine Zahl daneben
 const SEITEN = [
+  { pfad: "start", menue: "start", zeigen: zeigeStart },
   { pfad: "anforderungen", menue: "meine", zeigen: (w) => zeigeListe(w, "meine"), zaehler: (i) => i.offen.rueckfragen },
   { pfad: "anforderung", zeigen: zeigeAnforderung },
   { pfad: "genehmigen", menue: "genehmigen", sichtbar: (i) => i.genehmiger || i.offen.genehmigen > 0, zeigen: (w) => zeigeListe(w, "genehmigen"), zaehler: (i) => i.offen.genehmigen },
-  { pfad: "ausfuehren", menue: "ausfuehren", sichtbar: (i) => i.ausfuehrender, zeigen: (w) => zeigeListe(w, "ausfuehren"), zaehler: (i) => i.offen.ausfuehren },
+  { pfad: "ausfuehren", menue: "ausfuehren", sichtbar: (i) => i.ausfuehrender, zaehler: (i) => i.offen.ausfuehren,
+    zeigen: (w, rest) => (rest[0] === "druck" ? zeigeTagesliste(w, rest[1]) : zeigeListe(w, "ausfuehren")) },
   { pfad: "alle", menue: "alle", sichtbar: () => darf("verwalten"), zeigen: (w) => zeigeListe(w, "alle") },
   { pfad: "kataloge", menue: "kataloge", sichtbar: (i) => darf("verwalten") || i.pfleger, zeigen: zeigeKataloge },
   { pfad: "statistik", menue: "statistik", sichtbar: () => darf("verwalten") || darf("statistik"), zeigen: zeigeStatistik },
@@ -43,9 +46,18 @@ async function start() {
   if (!status.benutzer) return zeigeAnmeldung();
   await ichLaden();
   kopfAufbauen();
-  setInterval(() => {
+  updateHinweis();
+  setInterval(async () => {
     versionPruefen();
-    ichLaden().then(menueAufbauen).catch(() => {});
+    const vorher = JSON.stringify(zustand.ich?.offen);
+    try {
+      await ichLaden();
+    } catch {
+      return;
+    }
+    menueAufbauen();
+    // Die Übersicht zeigt neue Aufgaben, ohne dass man neu laden muss
+    if (aktuelleSeite() === "start" && JSON.stringify(zustand.ich.offen) !== vorher && !document.querySelector("dialog[open]")) seiteWechseln();
   }, 60000);
   document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && versionPruefen());
   window.addEventListener("hashchange", () => {
@@ -165,18 +177,58 @@ function kopfAufbauen() {
   document.addEventListener("click", () => nav.classList.remove("offen"));
 }
 
+function aktuelleSeite() {
+  return location.hash.split("/")[1] || "start";
+}
+
 function menueAufbauen() {
   const ich = zustand.ich;
   const nav = document.getElementById("navigation");
-  const aktuell = location.hash.split("/")[1] || "anforderungen";
+  const aktuell = aktuelleSeite();
+  const update = nav.querySelector(".nav-update");
   leeren(
     nav,
     SEITEN.filter((s) => s.menue && (!s.sichtbar || s.sichtbar(ich))).map((s) => {
       const zahl = s.zaehler ? s.zaehler(ich) : 0;
       const aktiv = aktuell === s.pfad || (s.pfad === "anforderungen" && location.hash.startsWith("#/anforderung/neu"));
       return h("a", { href: `#/${s.pfad}`, class: aktiv ? "aktiv" : "" }, t(`menue.${s.menue}`), zahl ? h("span.zaehler", zahl) : null);
-    })
+    }),
+    update
   );
+  // Offene Aufgaben auch im Browser-Tab, wenn das Tool im Hintergrund offen ist
+  const offen = ich.offen.genehmigen + ich.offen.ausfuehren + ich.offen.rueckfragen;
+  document.title = offen ? `(${offen}) ${t("app.name")}` : t("app.name");
+  hinweisleisteAufbauen();
+}
+
+/** Leiste unter dem Kopf: laufende Vertretungen – damit klar ist, warum man fremde Anforderungen sieht */
+function hinweisleisteAufbauen() {
+  const ich = zustand.ich;
+  const leiste = document.getElementById("hinweisleiste");
+  const bis = (liste) => liste.map((v) => t("hinweisleiste.person_bis", { name: v.name, bis: datumText(v.bis) })).join(", ");
+  const punkte = [
+    ich.ich_vertrete.length ? h("span", "↪ ", t("hinweisleiste.ich_vertrete", { namen: bis(ich.ich_vertrete) }), " ",
+      h("a", { href: "#/genehmigen" }, t("hinweisleiste.zu_genehmigen"))) : null,
+    ich.vertreten_durch.length ? h("span", "⏸ ", t("hinweisleiste.vertreten_durch", { namen: bis(ich.vertreten_durch) }), " ",
+      h("a", { href: "#/vertretung" }, t("hinweisleiste.aendern"))) : null,
+  ].filter(Boolean);
+  leeren(leiste, punkte);
+  leiste.hidden = !punkte.length;
+}
+
+/** Admins sehen im Menü, wenn es eine neue Version gibt */
+async function updateHinweis() {
+  if (!darf("verwalten")) return;
+  let u;
+  try {
+    u = await api("update");
+  } catch {
+    return;
+  }
+  const nav = document.getElementById("navigation");
+  nav.querySelector(".nav-update")?.remove();
+  if (!u.verfuegbar) return;
+  nav.append(h("a.nav-update", { href: "#/einstellungen/update" }, "⬆ " + t("update.nav", { version: u.neueste })));
 }
 
 let aufraeumen = null;

@@ -136,6 +136,10 @@ MIGRATIONEN: list[str] = [
     CREATE INDEX verlauf_anforderung ON verlauf(anforderung_id);
     CREATE INDEX vertretungen_benutzer ON vertretungen(benutzer_id)
     """,
+    # 2 – Erinnerungen: wann zuletzt an diese Anforderung erinnert wurde
+    """
+    ALTER TABLE anforderungen ADD COLUMN erinnert TEXT
+    """,
 ]
 
 STANDARD_EINSTELLUNGEN = {

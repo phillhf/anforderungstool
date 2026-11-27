@@ -1,6 +1,16 @@
 {
-  "app": { "name": "Anforderungstool" },
-  "wochentag": ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"],
+  "app": {
+    "name": "Anforderungstool"
+  },
+  "wochentag": [
+    "So",
+    "Mo",
+    "Di",
+    "Mi",
+    "Do",
+    "Fr",
+    "Sa"
+  ],
   "allgemein": {
     "abbrechen": "Abbrechen",
     "speichern": "Speichern",
@@ -11,6 +21,7 @@
     "inaktiv": "inaktiv"
   },
   "menue": {
+    "start": "Übersicht",
     "meine": "Meine Anforderungen",
     "genehmigen": "Genehmigen",
     "ausfuehren": "Ausführen",
@@ -88,12 +99,22 @@
     "vertretung": "Vertretung",
     "bei": "bei {name}",
     "leer": {
-      "meine": "Noch keine Anforderungen.",
-      "genehmigen": "Nichts zu genehmigen.",
+      "meine": "Du hast noch nichts angefordert. Mit „+ Neue Anforderung“ geht es los.",
+      "genehmigen": "Gerade wartet nichts auf deine Entscheidung. Du bekommst eine E-Mail, sobald sich das ändert.",
       "entschieden": "Du hast noch nichts entschieden.",
-      "ausfuehren": "Keine genehmigten Anforderungen.",
+      "ausfuehren": "Gerade ist nichts auszuführen. Du bekommst eine E-Mail, sobald eine Anforderung genehmigt ist.",
       "alle": "Keine Anforderungen."
-    }
+    },
+    "hilfe": {
+      "meine": "Alles, was du angefordert hast, mit Stand und nächstem Schritt.",
+      "genehmigen": "Anforderungen, die auf deine Entscheidung warten. Die älteste steht oben.",
+      "ausfuehren": "Genehmigte Anforderungen deiner Kataloge, nach Termin sortiert.",
+      "alle": "Alle übermittelten Anforderungen im Haus."
+    },
+    "bei_ausfuehrung": "Ausführung: {katalog}",
+    "noch_uebermitteln": "noch nicht übermittelt",
+    "du_bist_dran": "Du bist dran",
+    "wartet": "wartet"
   },
   "anforderung": {
     "angaben": "Angaben",
@@ -103,7 +124,7 @@
     "loeschen_frage": "Diesen Entwurf löschen?",
     "du_vertrittst": "Du entscheidest in Vertretung für {name}.",
     "grenze_reicht": "Die Summe liegt innerhalb der Freigabegrenze ({grenze}). Mit „Genehmigen“ ist die Anforderung endgültig genehmigt.",
-    "grenze_reicht_nicht": "Die Summe liegt über der Freigabegrenze ({grenze}). Mit „Befürworten“ geht die Anforderung an die nächsthöhere Stelle.",
+    "grenze_reicht_nicht": "Die Summe liegt über der Freigabegrenze ({grenze}). Mit „Befürworten“ geht die Anforderung weiter an {name}.",
     "erledigen_text": "Die Anforderung ist genehmigt. Melde sie nach der Ausführung als erledigt.",
     "begruendung": "Begründung (Pflicht)",
     "notiz_optional": "Notiz (optional)",
@@ -117,7 +138,9 @@
       "ablehnen": "Abgelehnt.",
       "rueckfrage": "Rückfrage an den Antragsteller geschickt.",
       "erledigt": "Als erledigt gemeldet."
-    }
+    },
+    "entwurf_text": "Dieser Entwurf ist noch nicht übermittelt. Erst nach dem Übermitteln geht er in die Genehmigung.",
+    "grenze_reicht_nicht_ende": "Die Summe liegt über der Freigabegrenze ({grenze}), und über dieser Stelle ist niemand eingetragen, der weiter entscheiden kann. Bitte die Verwaltung informieren, eine Rückfrage stellen oder ablehnen."
   },
   "aktion": {
     "bearbeiten": "Bearbeiten",
@@ -144,7 +167,12 @@
     "wartet_antragsteller": "Wartet auf {name} (Rückfrage beantworten)",
     "wartet_ausfuehrung": "Wartet auf die Ausführung ({katalog})",
     "vertretung_aktiv": "Vertretung derzeit: {namen}",
-    "leer": "Noch nicht übermittelt."
+    "leer": "Noch nicht übermittelt.",
+    "danach_befuerworten": "Danach: {name} (befürwortet und gibt weiter)",
+    "danach_endgueltig": "Danach: {name} (entscheidet endgültig)",
+    "danach_ausfuehrung": "Danach: Ausführung ({katalog})",
+    "danach_neu": "Danach: Genehmigung beginnt von vorn",
+    "weg_endet": "Danach ist niemand eingetragen, der so viel genehmigen darf. Bitte die Verwaltung informieren."
   },
   "editor": {
     "neu": "Neue Anforderung",
@@ -162,7 +190,10 @@
     "fehlt": "Bitte noch ausfüllen: {felder}",
     "entwurf_speichern": "Als Entwurf speichern",
     "gespeichert": "Entwurf gespeichert.",
-    "rueckfrage_von": "Rückfrage von {name}:"
+    "rueckfrage_von": "Rückfrage von {name}:",
+    "weg": "Nach dem Übermitteln geht die Anforderung an:",
+    "weg_selbst": "Liegt innerhalb deiner Freigabegrenze: Die Anforderung ist mit dem Übermitteln genehmigt.",
+    "weg_keiner": "Für diese Summe ist in deiner Kette niemand eingetragen, der sie genehmigen darf. Bitte wende dich an die Verwaltung."
   },
   "katalog": {
     "titel": "Kataloge",
@@ -302,7 +333,8 @@
       "allgemein": "Allgemein",
       "email": "E-Mail",
       "ad": "Active Directory",
-      "sicherung": "Sicherungen"
+      "sicherung": "Sicherungen",
+      "update": "Update"
     },
     "allgemein": "Allgemein",
     "adresse": "Adresse des Anforderungstools",
@@ -450,6 +482,91 @@
     "verschluesselung_unbekannt": "Unbekannte Verschlüsselung.",
     "mail_nicht_eingerichtet": "Bitte zuerst Server und Absender speichern.",
     "mail_fehler": "Versand fehlgeschlagen: {text}",
-    "ldap_server_fehlt": "Bitte einen Server angeben."
+    "ldap_server_fehlt": "Bitte einen Server angeben.",
+    "kein_update": "Es gibt keine neuere Version.",
+    "update_nicht_moeglich": "Das Update lässt sich hier nicht automatisch installieren.",
+    "update_pruefsumme": "Die Prüfsumme des geladenen Setups stimmt nicht. Das Update wurde nicht installiert.",
+    "update_fehlgeschlagen": "Das Update ist fehlgeschlagen: {grund}"
+  },
+  "start": {
+    "titel": "Hallo {name}",
+    "offen": "Es warten {n} Aufgaben auf dich.",
+    "nichts_offen": "Gerade wartet nichts auf dich.",
+    "nichts_titel": "Nichts zu tun",
+    "nichts_text": "Du bekommst eine E-Mail, sobald etwas auf dich wartet. Eine neue Anforderung stellst du über den Knopf oben rechts.",
+    "nichts_text_ohne_katalog": "Du bekommst eine E-Mail, sobald etwas auf dich wartet.",
+    "rueckfragen": "Rückfrage an dich",
+    "rueckfragen_hilfe": "Bitte beantworten: Anforderung ändern oder ergänzen und erneut übermitteln.",
+    "frage_von": "Frage von {name}",
+    "frage_von_vertretung": "Frage von {name} in Vertretung für {fuer}",
+    "beantworten": "Bearbeiten",
+    "genehmigen": "Zu genehmigen",
+    "genehmigen_hilfe": "Diese Anforderungen warten auf deine Entscheidung. Die älteste steht oben.",
+    "fuer": "Vertretung für {name}",
+    "ausfuehren": "Auszuführen",
+    "ausfuehren_hilfe": "Genehmigt und bereit. Nach der Ausführung bitte als erledigt melden.",
+    "entwuerfe": "Noch nicht übermittelt",
+    "entwuerfe_hilfe": "Entwürfe gehen erst nach dem Übermitteln in die Genehmigung.",
+    "angelegt": "Entwurf ·",
+    "laufend": "Meine laufenden Anforderungen",
+    "alle_meine": "Alle meine Anforderungen →",
+    "alle_anzeigen": "Alle anzeigen →",
+    "zur_liste": "Zur Liste und Tagesliste →",
+    "kein_vorgesetzter": "Für dich ist kein Vorgesetzter eingetragen. Anforderungen über deiner Freigabegrenze kannst du deshalb nicht übermitteln. Bitte wende dich an die Verwaltung des Anforderungstools.",
+    "vorgesetzter_inaktiv": "In deiner Genehmigungskette steht eine deaktivierte Person. Anforderungen, die bis dorthin gehen, können nicht genehmigt werden. Bitte wende dich an die Verwaltung.",
+    "admin": {
+      "titel": "Für die Verwaltung:",
+      "mail_fehlt": "Der E-Mail-Versand ist noch nicht eingerichtet. Niemand bekommt Benachrichtigungen.",
+      "mail_fehler": "{n} E-Mails konnten nicht verschickt werden.",
+      "adresse_fehlt": "Die Adresse des Tools fehlt. Die E-Mails enthalten deshalb keinen Link.",
+      "hierarchie": "Die Hierarchie hat {n} offene Hinweise."
+    },
+    "offen_eins": "Es wartet 1 Aufgabe auf dich."
+  },
+  "zeit": {
+    "seit_heute": "seit heute",
+    "seit_gestern": "seit gestern",
+    "seit_tagen": "seit {n} Tagen",
+    "heute": "heute",
+    "morgen": "morgen",
+    "ueberfaellig": "Termin vorbei"
+  },
+  "hinweisleiste": {
+    "person_bis": "{name} (bis {bis})",
+    "ich_vertrete": "Du vertrittst gerade {namen} und kannst stellvertretend entscheiden.",
+    "zu_genehmigen": "Zu genehmigen →",
+    "vertreten_durch": "Du wirst gerade vertreten von {namen}.",
+    "aendern": "Vertretung ansehen →"
+  },
+  "druck": {
+    "knopf": "Tagesliste",
+    "titel": "Tagesliste",
+    "drucken": "Drucken",
+    "leer": "Für {datum} gibt es keine genehmigten Anforderungen.",
+    "gesamt": "Zusammen",
+    "einzeln": "Einzeln ({n})"
+  },
+  "erinnerung": {
+    "titel": "Erinnerungen",
+    "hilfe": "Liegt eine Anforderung unbearbeitet, bekommt die zuständige Person eine Erinnerung: Genehmiger samt Vertretung bei offenen Genehmigungen, Antragsteller bei Rückfragen. Danach wird im selben Abstand erneut erinnert. Gezählt werden Werktage (Mo–Fr).",
+    "tage": "Erinnern nach … Werktagen",
+    "tage_hilfe": "0 = keine Erinnerungen.",
+    "vorgesetzter": "Bei offenen Genehmigungen zusätzlich den Vorgesetzten des Genehmigers informieren"
+  },
+  "update": {
+    "titel": "Update",
+    "nav": "Update {version}",
+    "pruefen": "Erneut prüfen",
+    "wird_geprueft": "Prüfe auf neue Version …",
+    "version": "Installiert: Version {version}",
+    "keine_verbindung": "GitHub ist von diesem Server aus nicht erreichbar. Ein Update geht dann über das Setup aus dem GitHub-Release.",
+    "verfuegbar": "Version {version} ist verfügbar.",
+    "aktuell": "Das ist die neueste Version.",
+    "installieren": "Jetzt installieren",
+    "hinweis": "Das Tool ist dabei etwa eine Minute nicht erreichbar. Vorher wird automatisch gesichert; Daten und Einstellungen bleiben erhalten.",
+    "manuell": "Das Update lässt sich hier nicht automatisch installieren. Bitte das Setup von GitHub laden:",
+    "wirklich": "Version {version} jetzt installieren? Das Tool ist dabei etwa eine Minute nicht erreichbar.",
+    "laeuft": "Das Update wird installiert. Die Seite lädt danach von selbst neu …",
+    "zeitueberschreitung": "Das Update dauert ungewöhnlich lange. Bitte die Seite später neu laden. Das Protokoll steht im Datenordner unter logs\\update.log."
   }
 }
