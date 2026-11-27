@@ -6,6 +6,7 @@
   python -m anforderungstool config --zertifikat C --schluessel K   HTTPS einschalten (PEM-Dateien), leer = aus
   python -m anforderungstool passwort BENUTZER [--passwort P]       Passwort neu setzen (Notfall)
   python -m anforderungstool sicherung             Sicherung der Datenbank anlegen
+  python -m anforderungstool --selftest            Prüft, ob das Paket vollständig ist
   python -m anforderungstool --version
 
 Überall gilt: --data ORDNER wählt einen anderen Datenordner.
@@ -108,10 +109,29 @@ def befehl_sicherung(pfade: Pfade) -> int:
         db.schliessen()
 
 
+def selbsttest() -> int:
+    import tempfile
+
+    import ldap3  # noqa: F401
+    import uvicorn  # noqa: F401
+
+    from .config import static_ordner
+    from .server import erstelle_app
+
+    for datei in ("index.html", "style.css", "favicon.svg", "i18n/de.json", "js/app.js"):
+        assert (static_ordner() / datei).is_file(), f"static/{datei} fehlt"
+    with tempfile.TemporaryDirectory() as tmp:
+        app = erstelle_app(Pfade(Path(tmp) / "daten"), hintergrund=False)
+        app.state.db.schliessen()
+    print(f"{APP_NAME} {__version__}: Selbsttest bestanden")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="anforderungstool", description=APP_NAME)
     p.add_argument("--data", type=Path, default=None, help="Datenordner")
     p.add_argument("--version", action="store_true")
+    p.add_argument("--selftest", action="store_true", help=argparse.SUPPRESS)
     unter = p.add_subparsers(dest="befehl")
     s = unter.add_parser("serve")
     s.add_argument("--port", type=int)
@@ -124,6 +144,8 @@ def main(argv: list[str] | None = None) -> int:
     pw.add_argument("--passwort")
     unter.add_parser("sicherung")
     a = p.parse_args(argv)
+    if a.selftest:
+        return selbsttest()
     if a.version:
         print(f"{APP_NAME} {__version__}")
         return 0

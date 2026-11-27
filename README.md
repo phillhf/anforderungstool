@@ -24,6 +24,20 @@ Wer anfordert, sieht jederzeit, wo die Anforderung steht und wer was entschieden
 - **Statistik:** wer wie viel angefordert hat, nach Zeitraum, Person, Katalog und Kostenstelle.
 - **Sicherung:** einmal täglich automatisch.
 
+## Installation
+
+1. Unter [Releases](https://github.com/phillhf/anforderungstool/releases) die neueste `Anforderungstool-Setup-x.y.z.exe` herunterladen.
+2. Als Administrator ausführen und den Port wählen (Standard 8480).
+3. Im Browser `http://<Server>:<Port>` öffnen und das erste Konto anlegen. Unter *Einstellungen* zeigt eine Liste, was noch einzurichten ist.
+
+Das Tool läuft als Windows-Dienst `Anforderungstool`. Die Daten liegen in `C:\ProgramData\Anforderungstool` und bleiben bei Updates und bei der Deinstallation erhalten. Ein Update ist einfach das neue Setup.
+
+Notfall-Passwort für ein Konto (als Administrator im Programmordner):
+
+```powershell
+.\Anforderungstool.exe passwort admin
+```
+
 ## Starten (Entwicklung)
 
 ```powershell

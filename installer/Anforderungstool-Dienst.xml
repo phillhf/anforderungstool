@@ -1,0 +1,24 @@
+<!--
+  Windows-Dienst "Anforderungstool" (WinSW). %BASE% = Ordner dieser Datei ({app}\service).
+  Port und Datenordner stehen in C:\ProgramData\Anforderungstool\config.json.
+-->
+<service>
+  <id>Anforderungstool</id>
+  <name>Anforderungstool</name>
+  <description>Anforderungstool - Webserver fuer Anforderungen mit Genehmigung</description>
+  <executable>%BASE%\..\Anforderungstool.exe</executable>
+  <arguments>serve</arguments>
+  <workingdirectory>%BASE%\..</workingdirectory>
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <stoptimeout>30 sec</stoptimeout>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <logpath>%ProgramData%\Anforderungstool\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+</service>
